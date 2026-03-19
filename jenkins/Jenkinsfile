@@ -8,7 +8,7 @@ pipeline {
         string(name: 'APP_PORT', defaultValue: '3000', description: 'Port the app listens on')
         string(name: 'USER_ID', defaultValue: 'unknown', description: 'Platform user id that initiated deploy')
         string(name: 'PLATFORM_DOMAIN', defaultValue: 'yourplatform.com', description: 'Base domain for app ingress')
-        choice(name: 'DEPLOY_MODE', choices: ['docker-local', 'gitops'], description: 'docker-local: build and run container only, gitops: push image and update gitops')
+        choice(name: 'DEPLOY_MODE', choices: ['docker-local', 'gitops'], description: 'docker-local: build, push, and run container; gitops: build, push, and update gitops')
     }
 
     environment {
@@ -72,9 +72,7 @@ pipeline {
 
         stage('Build app') {
             steps {
-                dir('user-app') {
-                    sh "bash ${SCRIPTS_DIR}/build-app.sh ${env.FRAMEWORK}"
-                }
+                echo "Skipping host prebuild. Application build will happen inside docker build."
             }
         }
 
@@ -102,7 +100,7 @@ pipeline {
 
         stage('Push image') {
             when {
-                expression { params.DEPLOY_MODE == 'gitops' }
+                expression { params.DEPLOY_MODE == 'gitops' || params.DEPLOY_MODE == 'docker-local' }
             }
             steps {
                 dir('user-app') {
@@ -174,7 +172,7 @@ pipeline {
             }
         }
         failure {
-            echo "Pipeline failed for ${params.APP_NAME} — check logs above."
+            echo "Pipeline failed for ${params.APP_NAME} - check logs above."
         }
         always {
             cleanWs()

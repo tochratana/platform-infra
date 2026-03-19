@@ -49,8 +49,8 @@ Create these credentials in Jenkins before running `deploy-pipeline`:
 
 `DEPLOY_MODE` behavior:
 
-- `docker-local`: build image and run container on Jenkins host only (no GitOps update).
-- `gitops`: push image to registry and update GitOps manifests.
+- `docker-local`: build image, push to registry, then run container on Jenkins host (no GitOps update).
+- `gitops`: build image, push to registry, then update GitOps manifests.
 
 ## Metadata stamped on manifests
 
