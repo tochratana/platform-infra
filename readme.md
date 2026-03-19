@@ -49,8 +49,8 @@ Create these credentials in Jenkins before running `deploy-pipeline`:
 
 `DEPLOY_MODE` behavior:
 
-- `docker-local`: build image, push to registry, then run container on Jenkins host (no GitOps update).
-- `gitops`: build image, push to registry, then update GitOps manifests.
+- `docker-local`: build image, push image to registry, and run container on Jenkins host (no GitOps update).
+- `gitops`: build image, push image to registry, and update GitOps manifests.
 
 ## Metadata stamped on manifests
 
@@ -75,3 +75,15 @@ The pipeline will:
 - Login to `registry.gitlab.yourdomain.com`
 - Push image as:
   - `registry.gitlab.yourdomain.com/group/project/<app-name>:<build-number>`
+
+## Harbor registry example
+
+If your Harbor URL is `harbor.devith.it.com` and your Harbor project is
+`deployment-pipeline`, set Jenkins credentials:
+
+- `registry-url` = `harbor.devith.it.com/deployment-pipeline`
+- `registry-credentials` = Harbor username/password (for quick test `admin` is fine; for production use a robot account)
+
+The pushed image format will be:
+
+- `harbor.devith.it.com/deployment-pipeline/<app-name>:<build-number>-<commit-sha>`

@@ -8,7 +8,7 @@ pipeline {
         string(name: 'APP_PORT', defaultValue: '3000', description: 'Port the app listens on')
         string(name: 'USER_ID', defaultValue: 'unknown', description: 'Platform user id that initiated deploy')
         string(name: 'PLATFORM_DOMAIN', defaultValue: 'yourplatform.com', description: 'Base domain for app ingress')
-        choice(name: 'DEPLOY_MODE', choices: ['docker-local', 'gitops'], description: 'docker-local: build, push, and run container; gitops: build, push, and update gitops')
+        choice(name: 'DEPLOY_MODE', choices: ['docker-local', 'gitops'], description: 'docker-local: build, push image, and run container; gitops: build, push image, and update gitops')
     }
 
     environment {
@@ -36,7 +36,17 @@ pipeline {
         stage('Checkout user app') {
             steps {
                 dir('user-app') {
-                    git url: params.REPO_URL, branch: params.BRANCH
+                    script {
+                        env.NORMALIZED_REPO_URL = params.REPO_URL
+                        if (params.REPO_URL?.contains('%')) {
+                            try {
+                                env.NORMALIZED_REPO_URL = java.net.URLDecoder.decode(params.REPO_URL, 'UTF-8')
+                            } catch (Exception ex) {
+                                echo "Warning: failed to decode REPO_URL, using original value."
+                            }
+                        }
+                    }
+                    git url: "${env.NORMALIZED_REPO_URL}", branch: params.BRANCH
                     script {
                         env.APP_COMMIT_SHA = sh(
                             script: "git rev-parse --short=12 HEAD",
