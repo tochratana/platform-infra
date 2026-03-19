@@ -43,7 +43,24 @@ Create these credentials in Jenkins before running `deploy-pipeline`:
 - `BRANCH`: user app branch
 - `APP_NAME`: unique app slug
 - `APP_PORT`: app container port
+- `USER_ID`: platform user id from backend auth subject
 - `PLATFORM_DOMAIN`: base domain (example: `tochratana.com`)
+- `DEPLOY_MODE`: `docker-local` or `gitops`
+
+`DEPLOY_MODE` behavior:
+
+- `docker-local`: build image and run container on Jenkins host only (no GitOps update).
+- `gitops`: push image to registry and update GitOps manifests.
+
+## Metadata stamped on manifests
+
+`update-gitops.sh` now writes deployment metadata automatically:
+
+- Label: `cloudflow.dev/user-id`
+- Label: `app.kubernetes.io/version`
+- Annotation: `cloudflow.dev/version`
+- Annotation: `cloudflow.dev/commit-sha`
+- Annotation: `cloudflow.dev/requested-by`
 
 ## GitLab registry example
 

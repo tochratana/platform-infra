@@ -7,6 +7,13 @@ APP_PORT=$3
 GITOPS_REPO=$4
 SSH_KEY=$5
 PLATFORM_DOMAIN=${6:-yourplatform.com}
+USER_ID=${7:-unknown}
+VERSION_LABEL=${8:-unknown}
+APP_COMMIT_SHA=${9:-unknown}
+
+SAFE_USER_ID=$(echo "$USER_ID" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9.-]+/-/g; s/^-+//; s/-+$//; s/^$/unknown/; s/^(.{1,63}).*$/\1/')
+SAFE_VERSION=$(echo "$VERSION_LABEL" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9.-]+/-/g; s/^-+//; s/-+$//; s/^$/unknown/; s/^(.{1,63}).*$/\1/')
+SAFE_COMMIT=$(echo "$APP_COMMIT_SHA" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9.-]+/-/g; s/^-+//; s/-+$//; s/^$/unknown/; s/^(.{1,63}).*$/\1/')
 
 GITOPS_DIR="gitops-tmp-${APP_NAME}"
 
@@ -27,6 +34,14 @@ metadata:
   namespace: apps
   labels:
     app: ${APP_NAME}
+    app.kubernetes.io/name: ${APP_NAME}
+    app.kubernetes.io/version: ${SAFE_VERSION}
+    cloudflow.dev/user-id: ${SAFE_USER_ID}
+    cloudflow.dev/commit-sha: ${SAFE_COMMIT}
+  annotations:
+    cloudflow.dev/version: ${VERSION_LABEL}
+    cloudflow.dev/commit-sha: ${APP_COMMIT_SHA}
+    cloudflow.dev/requested-by: ${USER_ID}
 spec:
   replicas: 1
   selector:
@@ -36,6 +51,14 @@ spec:
     metadata:
       labels:
         app: ${APP_NAME}
+        app.kubernetes.io/name: ${APP_NAME}
+        app.kubernetes.io/version: ${SAFE_VERSION}
+        cloudflow.dev/user-id: ${SAFE_USER_ID}
+        cloudflow.dev/commit-sha: ${SAFE_COMMIT}
+      annotations:
+        cloudflow.dev/version: ${VERSION_LABEL}
+        cloudflow.dev/commit-sha: ${APP_COMMIT_SHA}
+        cloudflow.dev/requested-by: ${USER_ID}
     spec:
       imagePullSecrets:
         - name: registry-secret
@@ -72,6 +95,16 @@ kind: Service
 metadata:
   name: ${APP_NAME}
   namespace: apps
+  labels:
+    app: ${APP_NAME}
+    app.kubernetes.io/name: ${APP_NAME}
+    app.kubernetes.io/version: ${SAFE_VERSION}
+    cloudflow.dev/user-id: ${SAFE_USER_ID}
+    cloudflow.dev/commit-sha: ${SAFE_COMMIT}
+  annotations:
+    cloudflow.dev/version: ${VERSION_LABEL}
+    cloudflow.dev/commit-sha: ${APP_COMMIT_SHA}
+    cloudflow.dev/requested-by: ${USER_ID}
 spec:
   selector:
     app: ${APP_NAME}
@@ -89,9 +122,18 @@ kind: Ingress
 metadata:
   name: ${APP_NAME}
   namespace: apps
+  labels:
+    app: ${APP_NAME}
+    app.kubernetes.io/name: ${APP_NAME}
+    app.kubernetes.io/version: ${SAFE_VERSION}
+    cloudflow.dev/user-id: ${SAFE_USER_ID}
+    cloudflow.dev/commit-sha: ${SAFE_COMMIT}
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
     cert-manager.io/cluster-issuer: letsencrypt-prod
+    cloudflow.dev/version: ${VERSION_LABEL}
+    cloudflow.dev/commit-sha: ${APP_COMMIT_SHA}
+    cloudflow.dev/requested-by: ${USER_ID}
 spec:
   ingressClassName: nginx
   tls:
@@ -120,7 +162,7 @@ git add .
 if git diff --cached --quiet; then
     echo "No changes to commit — image tag unchanged."
 else
-    git commit -m "deploy(${APP_NAME}): image → ${IMAGE_TAG}"
+    git commit -m "deploy(${APP_NAME}): user=${USER_ID} version=${VERSION_LABEL} image=${IMAGE_TAG}"
     git push origin main
     echo "GitOps repo updated. ArgoCD will sync shortly."
 fi
