@@ -1,13 +1,22 @@
 # platform-infra
 
-CI templates and scripts used by Jenkins to build user apps and update the GitOps repo.
+CI/CD templates and scripts used by Jenkins to build user applications and update the GitOps repository.
 
-## Pipeline responsibilities
+## What this repo does
 
-- Detect project framework.
-- Generate Dockerfile template (if user repo has no Dockerfile).
-- Build and push container image.
-- Write `deployment.yaml`, `service.yaml`, `ingress.yaml` to `platform-gitops`.
+- Detect application framework
+- Generate Dockerfile template when app repo does not include one
+- Build and push container images
+- Update GitOps manifests (`deployment.yaml`, `service.yaml`, `ingress.yaml`)
+
+## Repo structure
+
+- `jenkins/Jenkinsfile`: main deployment pipeline
+- `jenkins/scripts/`: helper scripts used by the pipeline
+- `docker/dockerfiles/`: Dockerfile templates per framework
+- `helm/app-template/`: app Helm chart template
+- `kubernetes/`: cluster bootstrap manifests (namespace, registry secret, ingress values)
+- `argocd/`: ArgoCD bootstrap manifests
 
 ## Supported frameworks
 
@@ -20,70 +29,83 @@ CI templates and scripts used by Jenkins to build user apps and update the GitOp
 - `python`
 - `static`
 
-## Required Jenkins credentials
+## Clone and use
 
-Create these credentials in Jenkins before running `deploy-pipeline`:
+1. Clone:
+
+```bash
+git clone <your-infra-repo-url>
+cd plateform-infra
+```
+
+2. In Jenkins, create a pipeline job that uses `jenkins/Jenkinsfile` from this repo.
+
+3. Configure required Jenkins credentials (IDs must match exactly):
 
 - `registry-url` (Secret text)
-  - Value for self-hosted GitLab registry: `registry.gitlab.yourdomain.com/group/project`
-- `registry-credentials` (Username with password)
-  - Username: GitLab username (or deploy token username)
-  - Password: GitLab personal access token / deploy token password
+- `registry-credentials` (Username/password)
 - `gitops-repo-url` (Secret text)
-  - Example: `git@github.com:yourorg/platform-gitops.git`
-- `gitops-ssh` (SSH Username with private key)
-  - SSH key with push access to GitOps repo
+- `gitops-ssh` (SSH private key)
 - `infra-repo-url` (Secret text)
-  - Example: `https://github.com/yourorg/platform-infra.git`
-- `infra-repo-creds` (Username/password or token credential for `infra-repo-url`)
+- `infra-repo-creds` (Username/password or token)
 
-## Parameters you pass when triggering deploy-pipeline
+4. Trigger pipeline with parameters:
 
-- `REPO_URL`: user app git URL
-- `BRANCH`: user app branch
-- `APP_NAME`: unique app slug
-- `APP_PORT`: app container port
-- `USER_ID`: platform user id from backend auth subject
-- `PLATFORM_DOMAIN`: base domain (example: `tochratana.com`)
-- `DEPLOY_MODE`: `docker-local` or `gitops`
+- `REPO_URL`
+- `BRANCH`
+- `APP_NAME`
+- `APP_PORT`
+- `USER_ID`
+- `PLATFORM_DOMAIN`
+- `DEPLOY_MODE` (`docker-local` or `gitops`)
 
-`DEPLOY_MODE` behavior:
+## Local testing (before pushing)
 
-- `docker-local`: build image, push image to registry, and run container on Jenkins host (no GitOps update).
-- `gitops`: build image, push image to registry, and update GitOps manifests.
+### 1) Shell syntax check
 
-## Metadata stamped on manifests
+```bash
+bash -n jenkins/scripts/detect-framework.sh
+bash -n jenkins/scripts/generate-dockerfile.sh
+bash -n jenkins/scripts/build-app.sh
+bash -n jenkins/scripts/update-gitops.sh
+```
 
-`update-gitops.sh` now writes deployment metadata automatically:
+### 2) Framework detection smoke tests
 
-- Label: `cloudflow.dev/user-id`
-- Label: `app.kubernetes.io/version`
-- Annotation: `cloudflow.dev/version`
-- Annotation: `cloudflow.dev/commit-sha`
-- Annotation: `cloudflow.dev/requested-by`
+```bash
+TMP_DIR=$(mktemp -d)
+cd "$TMP_DIR"
 
-## GitLab registry example
+echo '{"dependencies":{"next":"15.0.0"}}' > package.json
+bash /path/to/plateform-infra/jenkins/scripts/detect-framework.sh   # expected: nextjs
+```
 
-If your registry server is `registry.gitlab.yourdomain.com` and images should live under
-`group/project`, set:
+### 3) Dockerfile generation smoke test
 
-- `registry-url` = `registry.gitlab.yourdomain.com/group/project`
-- `registry-credentials` = GitLab user/token with push permission
+```bash
+TMP_DIR=$(mktemp -d)
+cd "$TMP_DIR"
+bash /path/to/plateform-infra/jenkins/scripts/generate-dockerfile.sh nextjs /path/to/plateform-infra/jenkins/scripts
+cat Dockerfile
+```
 
-The pipeline will:
+## Run pipeline testing in Jenkins
 
-- Login to `registry.gitlab.yourdomain.com`
-- Push image as:
-  - `registry.gitlab.yourdomain.com/group/project/<app-name>:<build-number>`
+Recommended validation path:
 
-## Harbor registry example
+1. Run with `DEPLOY_MODE=docker-local` first for fast feedback.
+2. Run with `DEPLOY_MODE=gitops` and verify commit appears in your GitOps repo.
+3. Confirm ArgoCD syncs and app becomes reachable at `https://<APP_NAME>.<PLATFORM_DOMAIN>`.
 
-If your Harbor URL is `harbor.devith.it.com` and your Harbor project is
-`deployment-pipeline`, set Jenkins credentials:
+## Registry examples
 
-- `registry-url` = `harbor.devith.it.com/deployment-pipeline`
-- `registry-credentials` = Harbor username/password (for quick test `admin` is fine; for production use a robot account)
+### GitLab registry
 
-The pushed image format will be:
+- `registry-url`: `registry.gitlab.yourdomain.com/group/project`
+- `registry-credentials`: GitLab user/token with push access
 
-- `harbor.devith.it.com/deployment-pipeline/<app-name>:<build-number>-<commit-sha>`
+### Harbor registry
+
+- `registry-url`: `harbor.example.com/project-name`
+- `registry-credentials`: Harbor user/password or robot account
+
