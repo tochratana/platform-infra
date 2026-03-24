@@ -4,16 +4,18 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8000
-ENV PYTHON_APP_MODULE=app:app
+ENV FLASK_APP_MODULE=app:app
 
 COPY requirements.txt* pyproject.toml* poetry.lock* ./
 RUN if [ -f requirements.txt ]; then \
       pip install --no-cache-dir -r requirements.txt; \
     elif [ -f pyproject.toml ]; then \
       pip install --no-cache-dir .; \
+    else \
+      pip install --no-cache-dir flask gunicorn; \
     fi
 
 COPY . .
 EXPOSE 8000
 
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT} ${PYTHON_APP_MODULE} || python app.py"]
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT} ${FLASK_APP_MODULE}"]

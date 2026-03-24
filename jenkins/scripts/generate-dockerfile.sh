@@ -1,35 +1,40 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-FRAMEWORK=$1
-TEMPLATES_DIR=$2/../docker/dockerfiles
+FRAMEWORK="${1:-static}"
+SCRIPTS_DIR="${2:-$(pwd)}"
+TEMPLATES_DIR="${SCRIPTS_DIR}/../../docker/dockerfiles"
 
-if [ -f "Dockerfile" ]; then
-    echo "Dockerfile already exists — skipping generation."
-    exit 0
+if [[ -f Dockerfile ]]; then
+  echo "User-provided Dockerfile detected. Skipping template generation."
+  exit 0
 fi
 
-echo "Generating Dockerfile for framework: ${FRAMEWORK}"
+template_for_framework() {
+  case "$1" in
+    nextjs) echo "Dockerfile.nextjs" ;;
+    react) echo "Dockerfile.react" ;;
+    nodejs) echo "Dockerfile.nodejs" ;;
+    springboot-maven|java-maven|springboot) echo "Dockerfile.springboot" ;;
+    springboot-gradle|java-gradle|gradle) echo "Dockerfile.gradle" ;;
+    fastapi) echo "Dockerfile.fastapi" ;;
+    flask) echo "Dockerfile.flask" ;;
+    python) echo "Dockerfile.python" ;;
+    laravel) echo "Dockerfile.laravel" ;;
+    php) echo "Dockerfile.php" ;;
+    static) echo "Dockerfile.static" ;;
+    *) echo "Dockerfile.static" ;;
+  esac
+}
 
-case "$FRAMEWORK" in
-    nextjs)
-        cp "${TEMPLATES_DIR}/Dockerfile.nextjs" Dockerfile ;;
-    nodejs)
-        cp "${TEMPLATES_DIR}/Dockerfile.nodejs" Dockerfile ;;
-    springboot)
-        cp "${TEMPLATES_DIR}/Dockerfile.springboot" Dockerfile ;;
-    gradle)
-        cp "${TEMPLATES_DIR}/Dockerfile.gradle" Dockerfile ;;
-    go)
-        cp "${TEMPLATES_DIR}/Dockerfile.go" Dockerfile ;;
-    fastapi)
-        cp "${TEMPLATES_DIR}/Dockerfile.fastapi" Dockerfile ;;
-    python)
-        cp "${TEMPLATES_DIR}/Dockerfile.python" Dockerfile ;;
-    static)
-        cp "${TEMPLATES_DIR}/Dockerfile.static" Dockerfile ;;
-    *)
-        cp "${TEMPLATES_DIR}/Dockerfile.static" Dockerfile ;;
-esac
+SELECTED_TEMPLATE="$(template_for_framework "${FRAMEWORK}")"
+SOURCE_FILE="${TEMPLATES_DIR}/${SELECTED_TEMPLATE}"
 
-echo "Dockerfile generated successfully."
+if [[ ! -f "${SOURCE_FILE}" ]]; then
+  echo "Template ${SELECTED_TEMPLATE} was not found. Falling back to Dockerfile.static."
+  SOURCE_FILE="${TEMPLATES_DIR}/Dockerfile.static"
+fi
+
+cp "${SOURCE_FILE}" Dockerfile
+
+echo "Generated Dockerfile from template: ${SELECTED_TEMPLATE}"

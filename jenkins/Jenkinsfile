@@ -1,29 +1,53 @@
 pipeline {
-    agent any
+    agent { label 'docker' }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '50'))
+        ansiColor('xterm')
+    }
 
     parameters {
-        string(name: 'REPO_URL', defaultValue: '', description: 'Git clone URL of user app')
-        string(name: 'BRANCH', defaultValue: 'main', description: 'Branch to build')
-        string(name: 'APP_NAME', defaultValue: '', description: 'Unique app slug (e.g. my-nextjs-app)')
-        string(name: 'APP_PORT', defaultValue: '3000', description: 'Port the app listens on')
-        string(name: 'USER_ID', defaultValue: 'unknown', description: 'Platform user id that initiated deploy')
-        string(name: 'PLATFORM_DOMAIN', defaultValue: 'yourplatform.com', description: 'Base domain for app ingress')
-        choice(name: 'DEPLOY_MODE', choices: ['docker-local', 'gitops'], description: 'docker-local: build, push image, and run container; gitops: build, push image, and update gitops')
+        string(name: 'REPO_URL', defaultValue: '', description: 'Git repository URL from user (GitHub/GitLab)')
+        string(name: 'BRANCH', defaultValue: 'main', description: 'Git branch to build')
+        string(name: 'USER_ID', defaultValue: '', description: 'Tenant user id')
+        string(name: 'PROJECT_NAME', defaultValue: '', description: 'Project slug')
+        string(name: 'APP_PORT', defaultValue: '3000', description: 'Container application port')
+        string(name: 'PLATFORM_DOMAIN', defaultValue: 'apps.example.com', description: 'Wildcard platform domain')
+        string(name: 'GITOPS_BRANCH', defaultValue: 'main', description: 'GitOps branch to update')
+        string(name: 'REPO_CREDENTIALS_ID', defaultValue: '', description: 'Optional Jenkins credential id for private user repositories')
     }
 
     environment {
-        // Secret text. Example for GitLab registry:
-        // registry.gitlab.example.com/my-group/my-project
-        REGISTRY_URL = credentials('registry-url')
-        // Secret text. Example: git@github.com:yourorg/platform-gitops.git
-        GITOPS_REPO = credentials('gitops-repo-url')
-        // Secret text. Example: https://github.com/yourorg/platform-infra.git
         INFRA_REPO_URL = credentials('infra-repo-url')
+        REGISTRY_REPOSITORY = credentials('registry-repository')
+        GITOPS_REPO_URL = credentials('gitops-repo-url')
         SCRIPTS_DIR = "${WORKSPACE}/platform-infra/jenkins/scripts"
+        HELM_CHART_SOURCE = "${WORKSPACE}/platform-infra/helm/app-template"
     }
 
     stages {
-        stage('Checkout infra scripts') {
+        stage('Validate input') {
+            steps {
+                script {
+                    if (!params.REPO_URL?.trim()) {
+                        error('REPO_URL is required')
+                    }
+                    if (!params.USER_ID?.trim()) {
+                        error('USER_ID is required')
+                    }
+                    if (!params.PROJECT_NAME?.trim()) {
+                        error('PROJECT_NAME is required')
+                    }
+                    if (!(params.APP_PORT ==~ /^\d+$/)) {
+                        error('APP_PORT must be numeric')
+                    }
+                }
+            }
+        }
+
+        stage('Checkout infra') {
             steps {
                 dir('platform-infra') {
                     git url: "${INFRA_REPO_URL}",
@@ -33,7 +57,7 @@ pipeline {
             }
         }
 
-        stage('Checkout user app') {
+        stage('Checkout user repository') {
             steps {
                 dir('user-app') {
                     script {
@@ -41,18 +65,43 @@ pipeline {
                         if (params.REPO_URL?.contains('%')) {
                             try {
                                 env.NORMALIZED_REPO_URL = java.net.URLDecoder.decode(params.REPO_URL, 'UTF-8')
-                            } catch (Exception ex) {
-                                echo "Warning: failed to decode REPO_URL, using original value."
+                            } catch (Exception ignored) {
+                                echo 'Could not decode REPO_URL, using original value.'
                             }
                         }
-                    }
-                    git url: "${env.NORMALIZED_REPO_URL}", branch: params.BRANCH
-                    script {
-                        env.APP_COMMIT_SHA = sh(
-                            script: "git rev-parse --short=12 HEAD",
+
+                        if (params.REPO_CREDENTIALS_ID?.trim()) {
+                            checkout([
+                                $class: 'GitSCM',
+                                branches: [[name: "*/${params.BRANCH}"]],
+                                userRemoteConfigs: [[
+                                    url: env.NORMALIZED_REPO_URL,
+                                    credentialsId: params.REPO_CREDENTIALS_ID
+                                ]]
+                            ])
+                        } else {
+                            git url: env.NORMALIZED_REPO_URL, branch: params.BRANCH
+                        }
+
+                        env.APP_COMMIT_SHA = sh(script: 'git rev-parse --short=12 HEAD', returnStdout: true).trim()
+                        env.SAFE_USER_ID = sh(
+                            script: "echo '${params.USER_ID}' | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//; s/-{2,}/-/g' | cut -c1-30",
                             returnStdout: true
                         ).trim()
-                        env.VERSION_LABEL = "${env.BUILD_NUMBER}-${env.APP_COMMIT_SHA}"
+                        env.SAFE_PROJECT_NAME = sh(
+                            script: "echo '${params.PROJECT_NAME}' | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//; s/-{2,}/-/g' | cut -c1-40",
+                            returnStdout: true
+                        ).trim()
+
+                        env.IMAGE_TAG = "${env.SAFE_USER_ID}-${env.BUILD_NUMBER}-${env.APP_COMMIT_SHA}"
+                        env.IMAGE_REPOSITORY = "${REGISTRY_REPOSITORY}/${env.SAFE_USER_ID}/${env.SAFE_PROJECT_NAME}"
+                        env.IMAGE_FULL = "${env.IMAGE_REPOSITORY}:${env.IMAGE_TAG}"
+                        env.REGISTRY_LOGIN_SERVER = sh(
+                            script: "echo '${REGISTRY_REPOSITORY}' | sed -E 's#^https?://##' | cut -d/ -f1",
+                            returnStdout: true
+                        ).trim()
+
+                        echo "Resolved image: ${env.IMAGE_FULL}"
                     }
                 }
             }
@@ -72,100 +121,56 @@ pipeline {
             }
         }
 
-        stage('Generate Dockerfile') {
+        stage('Prepare Dockerfile') {
             steps {
                 dir('user-app') {
-                    sh "bash ${SCRIPTS_DIR}/generate-dockerfile.sh ${env.FRAMEWORK} ${SCRIPTS_DIR}"
+                    sh "bash ${SCRIPTS_DIR}/generate-dockerfile.sh '${FRAMEWORK}' '${SCRIPTS_DIR}'"
                 }
-            }
-        }
-
-        stage('Build app') {
-            steps {
-                echo "Skipping host prebuild. Application build will happen inside docker build."
             }
         }
 
         stage('Build image') {
             steps {
                 dir('user-app') {
-                    script {
-                        env.REGISTRY_IMAGE_PREFIX = sh(
-                            script: "echo '${REGISTRY_URL}' | sed -E 's#^https?://##'",
-                            returnStdout: true
-                        ).trim()
-                        env.REGISTRY_LOGIN_SERVER = sh(
-                            script: "echo '${REGISTRY_IMAGE_PREFIX}' | cut -d/ -f1",
-                            returnStdout: true
-                        ).trim()
-                        env.IMAGE_FULL = "${env.REGISTRY_IMAGE_PREFIX}/${params.APP_NAME}:${env.VERSION_LABEL}"
-                    }
-
-                    sh """
-                        docker build -t "${IMAGE_FULL}" .
-                    """
+                    sh "docker build --pull -t '${IMAGE_FULL}' ."
                 }
             }
         }
 
         stage('Push image') {
-            when {
-                expression { params.DEPLOY_MODE == 'gitops' || params.DEPLOY_MODE == 'docker-local' }
-            }
             steps {
-                dir('user-app') {
-                    withCredentials([usernamePassword(
-                        credentialsId: 'registry-credentials',
-                        usernameVariable: 'REG_USER',
-                        passwordVariable: 'REG_PASS'
-                    )]) {
-                        sh """
-                            echo "${REG_PASS}" | docker login "${REGISTRY_LOGIN_SERVER}" -u "${REG_USER}" --password-stdin
-                            docker push "${IMAGE_FULL}"
-                        """
-                    }
+                withCredentials([usernamePassword(
+                    credentialsId: 'registry-credentials',
+                    usernameVariable: 'REGISTRY_USERNAME',
+                    passwordVariable: 'REGISTRY_PASSWORD'
+                )]) {
+                    sh '''
+                        echo "${REGISTRY_PASSWORD}" | docker login "${REGISTRY_LOGIN_SERVER}" -u "${REGISTRY_USERNAME}" --password-stdin
+                        docker push "${IMAGE_FULL}"
+                    '''
                 }
             }
         }
 
-        stage('Run container (docker-local)') {
-            when {
-                expression { params.DEPLOY_MODE == 'docker-local' }
-            }
+        stage('Update GitOps repository') {
             steps {
-                sh """
-                    docker rm -f "${params.APP_NAME}" >/dev/null 2>&1 || true
-                    docker run -d \
-                      --name "${params.APP_NAME}" \
-                      -p "${params.APP_PORT}:${params.APP_PORT}" \
-                      --restart unless-stopped \
-                      "${IMAGE_FULL}"
-                    docker ps --filter "name=${params.APP_NAME}"
-                """
-            }
-        }
-
-        stage('Update GitOps') {
-            when {
-                expression { params.DEPLOY_MODE == 'gitops' }
-            }
-            steps {
-                withCredentials([sshUserPrivateKey(
-                    credentialsId: 'gitops-ssh',
-                    keyFileVariable: 'SSH_KEY'
-                )]) {
-                    sh """
-                        bash ${SCRIPTS_DIR}/update-gitops.sh \
-                            ${params.APP_NAME} \
-                            ${IMAGE_FULL} \
-                            ${params.APP_PORT} \
-                            ${GITOPS_REPO} \
-                            ${SSH_KEY} \
-                            ${params.PLATFORM_DOMAIN} \
-                            ${params.USER_ID} \
-                            ${VERSION_LABEL} \
-                            ${APP_COMMIT_SHA}
-                    """
+                withCredentials([sshUserPrivateKey(credentialsId: 'gitops-ssh', keyFileVariable: 'SSH_KEY')]) {
+                    sh '''
+                        bash "${SCRIPTS_DIR}/update-gitops.sh" \
+                          --gitops-repo "${GITOPS_REPO_URL}" \
+                          --gitops-branch "${GITOPS_BRANCH}" \
+                          --ssh-key "${SSH_KEY}" \
+                          --user-id "${USER_ID}" \
+                          --project-name "${PROJECT_NAME}" \
+                          --image-repository "${IMAGE_REPOSITORY}" \
+                          --image-tag "${IMAGE_TAG}" \
+                          --app-port "${APP_PORT}" \
+                          --platform-domain "${PLATFORM_DOMAIN}" \
+                          --framework "${FRAMEWORK}" \
+                          --commit-sha "${APP_COMMIT_SHA}" \
+                          --build-number "${BUILD_NUMBER}" \
+                          --chart-source "${HELM_CHART_SOURCE}"
+                    '''
                 }
             }
         }
@@ -173,16 +178,12 @@ pipeline {
 
     post {
         success {
-            script {
-                if (params.DEPLOY_MODE == 'docker-local') {
-                    echo "Build+run complete. Container '${params.APP_NAME}' is running on Jenkins host port ${params.APP_PORT} (version=${VERSION_LABEL})"
-                } else {
-                    echo "Deploy pipeline complete. App will be live at https://${params.APP_NAME}.${params.PLATFORM_DOMAIN} (version=${VERSION_LABEL})"
-                }
-            }
+            echo "Deployment requested successfully for ${params.PROJECT_NAME}."
+            echo "Image: ${env.IMAGE_FULL}"
+            echo "Expected URL: https://${env.SAFE_PROJECT_NAME}.${params.PLATFORM_DOMAIN}"
         }
         failure {
-            echo "Pipeline failed for ${params.APP_NAME} - check logs above."
+            echo "Deployment failed. Check stage logs for details."
         }
         always {
             cleanWs()

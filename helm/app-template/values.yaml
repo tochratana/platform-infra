@@ -1,13 +1,60 @@
-appName: my-app
-image: registry.yourplatform.com/my-app:latest
-port: 3000
-replicas: 1
-domain: yourplatform.com
+app:
+  name: "sample-app"
+  userId: "user-123"
+  projectName: "sample-app"
+  namespace: "user-user-123"
+  framework: "nodejs"
+  containerPort: 3000
+  servicePort: 80
+  domain: "apps.example.com"
+  host: "sample-app.apps.example.com"
+
+image:
+  repository: "registry.example.com/platform/user-123/sample-app"
+  tag: "user-123-1-abcdef123456" # managed-by-jenkins-image-tag
+  pullPolicy: "IfNotPresent"
+
+replicaCount: 1
 
 resources:
   requests:
-    memory: "128Mi"
     cpu: "100m"
+    memory: "128Mi"
   limits:
-    memory: "512Mi"
     cpu: "500m"
+    memory: "512Mi"
+
+probes:
+  readiness:
+    enabled: true
+    path: "/"
+    initialDelaySeconds: 10
+    periodSeconds: 10
+  liveness:
+    enabled: true
+    path: "/"
+    initialDelaySeconds: 30
+    periodSeconds: 15
+
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 70
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  tls:
+    enabled: true
+    secretName: ""
+
+imagePullSecrets:
+  - name: "registry-secret"
+
+env: []
+nodeSelector: {}
+tolerations: []
+affinity: {}

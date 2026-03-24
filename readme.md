@@ -1,111 +1,59 @@
 # platform-infra
 
-CI/CD templates and scripts used by Jenkins to build user applications and update the GitOps repository.
+Production-grade CI/CD building blocks for a multi-tenant deployment platform (Vercel/Render style).
 
-## What this repo does
+## What this repo provides
 
-- Detect application framework
-- Generate Dockerfile template when app repo does not include one
-- Build and push container images
-- Update GitOps manifests (`deployment.yaml`, `service.yaml`, `ingress.yaml`)
-
-## Repo structure
-
-- `jenkins/Jenkinsfile`: main deployment pipeline
-- `jenkins/scripts/`: helper scripts used by the pipeline
-- `docker/dockerfiles/`: Dockerfile templates per framework
-- `helm/app-template/`: app Helm chart template
-- `kubernetes/`: cluster bootstrap manifests (namespace, registry secret, ingress values)
-- `argocd/`: ArgoCD bootstrap manifests
+- Single generic Jenkins pipeline for all frameworks
+- Automatic framework detection and Dockerfile fallback templates
+- Docker image build/push with immutable version tag format:
+  - `<userId>-<buildNumber>-<commitSHA>`
+- GitOps update script that writes to:
+  - `apps/<userId>/<projectName>/`
+- Helm templates for Deployment, Service, Ingress, and HPA
+- Conflict-safe GitOps pushes with retry logic
 
 ## Supported frameworks
 
-- `nextjs`
-- `nodejs`
-- `springboot`
-- `gradle`
-- `go`
-- `fastapi`
-- `python`
-- `static`
+- Node.js (`nextjs`, `react`, `nodejs`)
+- Java (`springboot-maven`, `springboot-gradle`, `java-maven`, `java-gradle`)
+- Python (`fastapi`, `flask`, `python`)
+- PHP (`laravel`, `php`)
+- Static sites (`static`)
 
-## Clone and use
+## Key files
 
-1. Clone:
+- `jenkins/Jenkinsfile`
+- `jenkins/scripts/detect-framework.sh`
+- `jenkins/scripts/generate-dockerfile.sh`
+- `jenkins/scripts/update-gitops.sh`
+- `docker/dockerfiles/*`
+- `helm/app-template/*`
 
-```bash
-git clone <your-infra-repo-url>
-cd plateform-infra
-```
+## Jenkins credentials required
 
-2. In Jenkins, create a pipeline job that uses `jenkins/Jenkinsfile` from this repo.
-
-3. Configure required Jenkins credentials (IDs must match exactly):
-
-- `registry-url` (Secret text)
-- `registry-credentials` (Username/password)
-- `gitops-repo-url` (Secret text)
-- `gitops-ssh` (SSH private key)
 - `infra-repo-url` (Secret text)
-- `infra-repo-creds` (Username/password or token)
+- `infra-repo-creds` (Git credentials)
+- `registry-repository` (Secret text, e.g. `registry.example.com/platform`)
+- `registry-credentials` (Username/Password)
+- `gitops-repo-url` (Secret text, SSH URL)
+- `gitops-ssh` (SSH private key)
 
-4. Trigger pipeline with parameters:
+## Pipeline inputs
 
 - `REPO_URL`
 - `BRANCH`
-- `APP_NAME`
-- `APP_PORT`
 - `USER_ID`
+- `PROJECT_NAME`
+- `APP_PORT`
 - `PLATFORM_DOMAIN`
-- `DEPLOY_MODE` (`docker-local` or `gitops`)
+- `GITOPS_BRANCH`
+- `REPO_CREDENTIALS_ID` (optional)
 
-## Local testing (before pushing)
-
-### 1) Shell syntax check
+## Local validation
 
 ```bash
 bash -n jenkins/scripts/detect-framework.sh
 bash -n jenkins/scripts/generate-dockerfile.sh
-bash -n jenkins/scripts/build-app.sh
 bash -n jenkins/scripts/update-gitops.sh
 ```
-
-### 2) Framework detection smoke tests
-
-```bash
-TMP_DIR=$(mktemp -d)
-cd "$TMP_DIR"
-
-echo '{"dependencies":{"next":"15.0.0"}}' > package.json
-bash /path/to/plateform-infra/jenkins/scripts/detect-framework.sh   # expected: nextjs
-```
-
-### 3) Dockerfile generation smoke test
-
-```bash
-TMP_DIR=$(mktemp -d)
-cd "$TMP_DIR"
-bash /path/to/plateform-infra/jenkins/scripts/generate-dockerfile.sh nextjs /path/to/plateform-infra/jenkins/scripts
-cat Dockerfile
-```
-
-## Run pipeline testing in Jenkins
-
-Recommended validation path:
-
-1. Run with `DEPLOY_MODE=docker-local` first for fast feedback.
-2. Run with `DEPLOY_MODE=gitops` and verify commit appears in your GitOps repo.
-3. Confirm ArgoCD syncs and app becomes reachable at `https://<APP_NAME>.<PLATFORM_DOMAIN>`.
-
-## Registry examples
-
-### GitLab registry
-
-- `registry-url`: `registry.gitlab.yourdomain.com/group/project`
-- `registry-credentials`: GitLab user/token with push access
-
-### Harbor registry
-
-- `registry-url`: `harbor.example.com/project-name`
-- `registry-credentials`: Harbor user/password or robot account
-

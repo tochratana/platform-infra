@@ -1,7 +1,11 @@
-FROM eclipse-temurin:21-jdk-alpine AS builder
+FROM gradle:8.8.0-jdk21-alpine AS builder
 WORKDIR /app
 COPY . .
-RUN chmod +x gradlew && ./gradlew build -x test
+RUN if [ -f gradlew ]; then \
+      chmod +x gradlew && ./gradlew build -x test; \
+    else \
+      gradle build -x test; \
+    fi
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app

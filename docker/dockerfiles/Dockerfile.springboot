@@ -1,7 +1,11 @@
-FROM eclipse-temurin:21-jdk-alpine AS builder
+FROM maven:3.9.9-eclipse-temurin-21-alpine AS builder
 WORKDIR /app
 COPY . .
-RUN chmod +x mvnw && ./mvnw package -DskipTests --batch-mode
+RUN if [ -f mvnw ]; then \
+      chmod +x mvnw && ./mvnw -B -DskipTests package; \
+    else \
+      mvn -B -DskipTests package; \
+    fi
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
