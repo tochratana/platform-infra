@@ -2,8 +2,8 @@ pipeline {
     agent { label 'docker' }
 
     options {
+        timeout(time: 20, unit: 'MINUTES')
         timestamps()
-        disableConcurrentBuilds()
         buildDiscarder(logRotator(numToKeepStr: '50'))
         ansiColor('xterm')
     }
@@ -124,7 +124,14 @@ pipeline {
         stage('Prepare Dockerfile') {
             steps {
                 dir('user-app') {
-                    sh "bash ${SCRIPTS_DIR}/generate-dockerfile.sh '${FRAMEWORK}' '${SCRIPTS_DIR}'"
+                    sh '''
+                        if [ -f Dockerfile ]; then
+                            echo "Using user-provided Dockerfile."
+                        else
+                            echo "Generating Dockerfile from platform template."
+                            bash "${SCRIPTS_DIR}/generate-dockerfile.sh" "${FRAMEWORK}" "${SCRIPTS_DIR}"
+                        fi
+                    '''
                 }
             }
         }
@@ -154,23 +161,25 @@ pipeline {
 
         stage('Update GitOps repository') {
             steps {
-                withCredentials([sshUserPrivateKey(credentialsId: 'gitops-ssh', keyFileVariable: 'SSH_KEY')]) {
-                    sh '''
-                        bash "${SCRIPTS_DIR}/update-gitops.sh" \
-                          --gitops-repo "${GITOPS_REPO_URL}" \
-                          --gitops-branch "${GITOPS_BRANCH}" \
-                          --ssh-key "${SSH_KEY}" \
-                          --user-id "${USER_ID}" \
-                          --project-name "${PROJECT_NAME}" \
-                          --image-repository "${IMAGE_REPOSITORY}" \
-                          --image-tag "${IMAGE_TAG}" \
-                          --app-port "${APP_PORT}" \
-                          --platform-domain "${PLATFORM_DOMAIN}" \
-                          --framework "${FRAMEWORK}" \
-                          --commit-sha "${APP_COMMIT_SHA}" \
-                          --build-number "${BUILD_NUMBER}" \
-                          --chart-source "${HELM_CHART_SOURCE}"
-                    '''
+                lock(resource: "gitops-${env.SAFE_USER_ID}-${env.SAFE_PROJECT_NAME}") {
+                    withCredentials([sshUserPrivateKey(credentialsId: 'gitops-ssh', keyFileVariable: 'SSH_KEY')]) {
+                        sh '''
+                            bash "${SCRIPTS_DIR}/update-gitops.sh" \
+                              --gitops-repo "${GITOPS_REPO_URL}" \
+                              --gitops-branch "${GITOPS_BRANCH}" \
+                              --ssh-key "${SSH_KEY}" \
+                              --user-id "${USER_ID}" \
+                              --project-name "${PROJECT_NAME}" \
+                              --image-repository "${IMAGE_REPOSITORY}" \
+                              --image-tag "${IMAGE_TAG}" \
+                              --app-port "${APP_PORT}" \
+                              --platform-domain "${PLATFORM_DOMAIN}" \
+                              --framework "${FRAMEWORK}" \
+                              --commit-sha "${APP_COMMIT_SHA}" \
+                              --build-number "${BUILD_NUMBER}" \
+                              --chart-source "${HELM_CHART_SOURCE}"
+                        '''
+                    }
                 }
             }
         }
