@@ -21,15 +21,13 @@ pipeline {
         string(name: 'GITOPS_BRANCH', defaultValue: 'main', description: 'GitOps branch to update')
         string(name: 'REPO_CREDENTIALS_ID', defaultValue: '', description: 'Optional Jenkins credential id for private user repositories')
         booleanParam(name: 'ENABLE_TRIVY_SCAN', defaultValue: true, description: 'Run local Trivy image scan')
-        booleanParam(name: 'ENABLE_GITOPS_UPDATE', defaultValue: false, description: 'Update GitOps repository after push')
+        booleanParam(name: 'ENABLE_GITOPS_UPDATE', defaultValue: true, description: 'Update GitOps repository after push')
     }
 
     environment {
         INFRA_REPO_URL = credentials('infra-repo-url')
         REGISTRY_REPOSITORY = credentials('registry-repository')
         GITOPS_REPO_URL = credentials('gitops-repo-url')
-        SCRIPTS_DIR = "${WORKSPACE}/platform-infra/jenkins/scripts"
-        HELM_CHART_SOURCE = "${WORKSPACE}/platform-infra/helm/app-template"
     }
 
     stages {
@@ -56,6 +54,8 @@ pipeline {
                     if (!normalizedRegistry.contains('/')) {
                         error('REGISTRY_REPOSITORY must include registry host and Harbor project (example: harbor.devith.it.com/deployment-pipeline)')
                     }
+
+                    echo "ENABLE_GITOPS_UPDATE=${params.ENABLE_GITOPS_UPDATE} | GITOPS_BRANCH=${params.GITOPS_BRANCH}"
                 }
             }
         }
@@ -134,8 +134,23 @@ pipeline {
             steps {
                 dir('user-app') {
                     script {
+                        String scriptsDir = sh(
+                            script: '''
+                                set -e
+                                for d in "$WORKSPACE/platform-infra/jenkins/scripts" "$WORKSPACE/plateform-infra/jenkins/scripts"; do
+                                    if [ -f "$d/detect-framework.sh" ]; then
+                                        echo "$d"
+                                        exit 0
+                                    fi
+                                done
+                                echo "ERROR: detect-framework.sh not found in expected infra directories." >&2
+                                ls -la "$WORKSPACE" >&2 || true
+                                exit 1
+                            ''',
+                            returnStdout: true
+                        ).trim()
                         env.FRAMEWORK = sh(
-                            script: "bash ${SCRIPTS_DIR}/detect-framework.sh",
+                            script: "bash '${scriptsDir}/detect-framework.sh'",
                             returnStdout: true
                         ).trim()
                         echo "Detected framework: ${env.FRAMEWORK}"
@@ -148,6 +163,19 @@ pipeline {
             steps {
                 dir('user-app') {
                     sh '''
+                        SCRIPTS_DIR=""
+                        for d in "$WORKSPACE/platform-infra/jenkins/scripts" "$WORKSPACE/plateform-infra/jenkins/scripts"; do
+                            if [ -f "$d/generate-dockerfile.sh" ]; then
+                                SCRIPTS_DIR="$d"
+                                break
+                            fi
+                        done
+                        if [ -z "$SCRIPTS_DIR" ]; then
+                            echo "ERROR: generate-dockerfile.sh not found in expected infra directories."
+                            ls -la "$WORKSPACE" || true
+                            exit 1
+                        fi
+
                         if [ -f Dockerfile ]; then
                             echo "Using user-provided Dockerfile."
                         else
@@ -194,6 +222,19 @@ pipeline {
                     // Prepare Dockerfile (in case user didn't provide one)
                     dir('user-app') {
                         sh '''
+                            SCRIPTS_DIR=""
+                            for d in "$WORKSPACE/platform-infra/jenkins/scripts" "$WORKSPACE/plateform-infra/jenkins/scripts"; do
+                                if [ -f "$d/generate-dockerfile.sh" ]; then
+                                    SCRIPTS_DIR="$d"
+                                    break
+                                fi
+                            done
+                            if [ -z "$SCRIPTS_DIR" ]; then
+                                echo "ERROR: generate-dockerfile.sh not found in expected infra directories."
+                                ls -la "$WORKSPACE" || true
+                                exit 1
+                            fi
+
                             if [ -f Dockerfile ]; then
                                 echo "Using user-provided Dockerfile."
                             else
@@ -204,18 +245,24 @@ pipeline {
                     }
 
                     // Build
-                        dir('user-app') {
-                          sh 'docker build --pull -t "$IMAGE_FULL" .'
-                         }
+                    dir('user-app') {
+                        sh '''
+                            echo "[build] Starting docker build for ${IMAGE_FULL}"
+                            docker build --pull --progress=plain --provenance=false -t "$IMAGE_FULL" .
+                            echo "[build] Docker build completed"
+                        '''
+                    }
 
                 // 2. Scan (conditional — but does NOT gate the push on its own)
                 if (params.ENABLE_TRIVY_SCAN) {
+                    echo "[scan] Starting Trivy scan for ${env.IMAGE_FULL}"
                     trivyScan(
                         fullImage: env.IMAGE_FULL,
                         trivyPath: '/home/enz/trivy/docker-compose.yml',
                         reportPath: '/home/enz/trivy/reports/trivy-report.json',
                         gateSeverity: 'HIGH,CRITICAL'
                     )
+                    echo "[scan] Trivy scan completed, uploading to DefectDojo"
                     uploadDefectDojo(
                         defectdojoUrl: 'https://defectdojo.devith.it.com',
                         defectdojoCredentialId: 'DEFECTDOJO',
@@ -225,6 +272,7 @@ pipeline {
                         engagementName: "Jenkins-${env.BUILD_NUMBER}",
                         testTitle: "Trivy Image Scan - ${env.IMAGE_TAG}"
                     )
+                    echo "[scan] DefectDojo upload completed"
                 }
 
                 // 3. Push — always runs after scan (scan failures call error() and stop execution)
@@ -234,9 +282,11 @@ pipeline {
                     passwordVariable: 'REGISTRY_PASSWORD'
                 )]) {
                     sh '''
+                        echo "[push] Pushing image ${IMAGE_FULL}"
                         echo "${REGISTRY_PASSWORD}" | docker login "${REGISTRY_LOGIN_SERVER}" \
                             -u "${REGISTRY_USERNAME}" --password-stdin
                         docker push "${IMAGE_FULL}"
+                        echo "[push] Image push completed"
                     '''
                     }
                 }
@@ -251,6 +301,21 @@ pipeline {
                 lock(resource: "gitops-${env.SAFE_USER_ID}-${env.SAFE_PROJECT_NAME}") {
                     withCredentials([sshUserPrivateKey(credentialsId: 'gitops-ssh', keyFileVariable: 'SSH_KEY')]) {
                         sh '''
+                            SCRIPTS_DIR=""
+                            INFRA_BASE_DIR=""
+                            for base in "$WORKSPACE/platform-infra" "$WORKSPACE/plateform-infra"; do
+                                if [ -f "$base/jenkins/scripts/update-gitops.sh" ]; then
+                                    SCRIPTS_DIR="$base/jenkins/scripts"
+                                    INFRA_BASE_DIR="$base"
+                                    break
+                                fi
+                            done
+                            if [ -z "$SCRIPTS_DIR" ]; then
+                                echo "ERROR: update-gitops.sh not found in expected infra directories."
+                                ls -la "$WORKSPACE" || true
+                                exit 1
+                            fi
+
                             bash "${SCRIPTS_DIR}/update-gitops.sh" \
                               --gitops-repo "${GITOPS_REPO_URL}" \
                               --gitops-branch "${GITOPS_BRANCH}" \
@@ -264,7 +329,7 @@ pipeline {
                               --framework "${FRAMEWORK}" \
                               --commit-sha "${APP_COMMIT_SHA}" \
                               --build-number "${BUILD_NUMBER}" \
-                              --chart-source "${HELM_CHART_SOURCE}"
+                              --chart-source "${INFRA_BASE_DIR}/helm/app-template"
                         '''
                     }
                 }
@@ -286,4 +351,3 @@ pipeline {
         }
     }
 }
-
