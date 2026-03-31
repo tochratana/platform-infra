@@ -262,6 +262,21 @@ if [[ ! -d "${CHART_SOURCE}" ]]; then
   exit 1
 fi
 
+if [[ ! -f "${SSH_KEY}" ]]; then
+  echo "SSH key file not found: ${SSH_KEY}" >&2
+  echo "Verify Jenkins credential 'gitops-ssh' is configured as 'SSH Username with private key'." >&2
+  exit 1
+fi
+
+chmod 600 "${SSH_KEY}" || true
+
+if ! ssh-keygen -y -f "${SSH_KEY}" >/dev/null 2>&1; then
+  echo "Invalid SSH private key provided by Jenkins credential 'gitops-ssh'." >&2
+  echo "Expected a real private key (OpenSSH/PEM), not a GitHub token/password." >&2
+  echo "Use username 'git' and paste the private key content in Jenkins credentials." >&2
+  exit 1
+fi
+
 # If Jenkins stores GitHub repo as HTTPS but we authenticate via SSH key,
 # convert to SSH URL so git clone/push can use GIT_SSH_COMMAND.
 if [[ "${GITOPS_REPO}" =~ ^https://github\.com/([^/]+)/([^/]+?)(\.git)?/?$ ]]; then
