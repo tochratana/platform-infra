@@ -146,25 +146,27 @@ commit_and_push() {
   local namespace_file="$4"
   local commit_message="$5"
 
-  cd "${repo_dir}"
-  git config user.email "jenkins@platform.local"
-  git config user.name "Jenkins CI"
+  (
+    cd "${repo_dir}"
+    git config user.email "jenkins@platform.local"
+    git config user.name "Jenkins CI"
 
-  git add "${project_path}" "${namespace_file}"
+    git add "${project_path}" "${namespace_file}"
 
-  if git diff --cached --quiet; then
-    echo "No GitOps changes required. Requested image tag already present."
-    return 10
-  fi
+    if git diff --cached --quiet; then
+      echo "No GitOps changes required. Requested image tag already present."
+      return 10
+    fi
 
-  git commit -m "${commit_message}" >/dev/null
+    git commit -m "${commit_message}" >/dev/null
 
-  if git push origin "${branch}" >/dev/null; then
-    echo "GitOps repository updated successfully."
-    return 0
-  fi
+    if git push origin "${branch}" >/dev/null; then
+      echo "GitOps repository updated successfully."
+      return 0
+    fi
 
-  return 1
+    return 1
+  )
 }
 
 GITOPS_REPO=""
@@ -260,6 +262,12 @@ if [[ ! -d "${CHART_SOURCE}" ]]; then
   exit 1
 fi
 
+# If Jenkins stores GitHub repo as HTTPS but we authenticate via SSH key,
+# convert to SSH URL so git clone/push can use GIT_SSH_COMMAND.
+if [[ "${GITOPS_REPO}" =~ ^https://github\.com/([^/]+)/([^/]+?)(\.git)?/?$ ]]; then
+  GITOPS_REPO="git@github.com:${BASH_REMATCH[1]}/${BASH_REMATCH[2]}.git"
+fi
+
 SAFE_USER_ID="$(slugify "${USER_ID}" 30)"
 SAFE_PROJECT_NAME="$(slugify "${PROJECT_NAME}" 40)"
 NAMESPACE="user-${SAFE_USER_ID}"
@@ -276,6 +284,7 @@ while [[ "${ATTEMPT}" -le "${MAX_ATTEMPTS}" ]]; do
   WORK_DIR="$(mktemp -d)"
 
   cleanup() {
+    cd /tmp || true
     rm -rf "${WORK_DIR}"
   }
   trap cleanup EXIT
