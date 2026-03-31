@@ -298,40 +298,38 @@ pipeline {
                 expression { return params.ENABLE_GITOPS_UPDATE }
             }
             steps {
-                lock(resource: "gitops-${env.SAFE_USER_ID}-${env.SAFE_PROJECT_NAME}") {
-                    withCredentials([sshUserPrivateKey(credentialsId: 'gitops-ssh', keyFileVariable: 'SSH_KEY')]) {
-                        sh '''
-                            SCRIPTS_DIR=""
-                            INFRA_BASE_DIR=""
-                            for base in "$WORKSPACE/platform-infra" "$WORKSPACE/plateform-infra"; do
-                                if [ -f "$base/jenkins/scripts/update-gitops.sh" ]; then
-                                    SCRIPTS_DIR="$base/jenkins/scripts"
-                                    INFRA_BASE_DIR="$base"
-                                    break
-                                fi
-                            done
-                            if [ -z "$SCRIPTS_DIR" ]; then
-                                echo "ERROR: update-gitops.sh not found in expected infra directories."
-                                ls -la "$WORKSPACE" || true
-                                exit 1
+                withCredentials([sshUserPrivateKey(credentialsId: 'gitops-ssh', keyFileVariable: 'SSH_KEY')]) {
+                    sh '''
+                        SCRIPTS_DIR=""
+                        INFRA_BASE_DIR=""
+                        for base in "$WORKSPACE/platform-infra" "$WORKSPACE/plateform-infra"; do
+                            if [ -f "$base/jenkins/scripts/update-gitops.sh" ]; then
+                                SCRIPTS_DIR="$base/jenkins/scripts"
+                                INFRA_BASE_DIR="$base"
+                                break
                             fi
+                        done
+                        if [ -z "$SCRIPTS_DIR" ]; then
+                            echo "ERROR: update-gitops.sh not found in expected infra directories."
+                            ls -la "$WORKSPACE" || true
+                            exit 1
+                        fi
 
-                            bash "${SCRIPTS_DIR}/update-gitops.sh" \
-                              --gitops-repo "${GITOPS_REPO_URL}" \
-                              --gitops-branch "${GITOPS_BRANCH}" \
-                              --ssh-key "${SSH_KEY}" \
-                              --user-id "${USER_ID}" \
-                              --project-name "${EFFECTIVE_PROJECT_NAME}" \
-                              --image-repository "${IMAGE_REPOSITORY}" \
-                              --image-tag "${IMAGE_TAG}" \
-                              --app-port "${APP_PORT}" \
-                              --platform-domain "${PLATFORM_DOMAIN}" \
-                              --framework "${FRAMEWORK}" \
-                              --commit-sha "${APP_COMMIT_SHA}" \
-                              --build-number "${BUILD_NUMBER}" \
-                              --chart-source "${INFRA_BASE_DIR}/helm/app-template"
-                        '''
-                    }
+                        bash "${SCRIPTS_DIR}/update-gitops.sh" \
+                          --gitops-repo "${GITOPS_REPO_URL}" \
+                          --gitops-branch "${GITOPS_BRANCH}" \
+                          --ssh-key "${SSH_KEY}" \
+                          --user-id "${USER_ID}" \
+                          --project-name "${EFFECTIVE_PROJECT_NAME}" \
+                          --image-repository "${IMAGE_REPOSITORY}" \
+                          --image-tag "${IMAGE_TAG}" \
+                          --app-port "${APP_PORT}" \
+                          --platform-domain "${PLATFORM_DOMAIN}" \
+                          --framework "${FRAMEWORK}" \
+                          --commit-sha "${APP_COMMIT_SHA}" \
+                          --build-number "${BUILD_NUMBER}" \
+                          --chart-source "${INFRA_BASE_DIR}/helm/app-template"
+                    '''
                 }
             }
         }
