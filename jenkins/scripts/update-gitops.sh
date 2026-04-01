@@ -451,18 +451,7 @@ while [[ "${ATTEMPT}" -le "${MAX_ATTEMPTS}" ]]; do
     cp -R "${CHART_SOURCE}/." "${PROJECT_DIR}/"
   fi
 
-  if [[ ! -f "${VALUES_FILE}" ]]; then
-    create_values_file "${VALUES_FILE}" "${SAFE_WORKSPACE_ID}" "${SAFE_USER_ID}" "${SAFE_PROJECT_NAME}" "${NAMESPACE}" "${FRAMEWORK}" "${IMAGE_REPOSITORY}" "${IMAGE_TAG}" "${APP_PORT}" "${PLATFORM_DOMAIN}" "${CUSTOM_DOMAIN}"
-  else
-    replace_image_tag "${VALUES_FILE}" "${IMAGE_TAG}" || {
-      echo "Unable to locate managed image tag marker in ${VALUES_FILE}." >&2
-      exit 1
-    }
-    replace_host_value "${VALUES_FILE}" "${EFFECTIVE_HOST}" || {
-      echo "Unable to update host value in ${VALUES_FILE}." >&2
-      exit 1
-    }
-  fi
+  create_values_file "${VALUES_FILE}" "${SAFE_WORKSPACE_ID}" "${SAFE_USER_ID}" "${SAFE_PROJECT_NAME}" "${NAMESPACE}" "${FRAMEWORK}" "${IMAGE_REPOSITORY}" "${IMAGE_TAG}" "${APP_PORT}" "${PLATFORM_DOMAIN}" "${CUSTOM_DOMAIN}"
 
   force_http_ingress "${VALUES_FILE}" || {
     echo "Unable to force HTTP ingress mode in ${VALUES_FILE}." >&2

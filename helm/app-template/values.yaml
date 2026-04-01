@@ -1,8 +1,8 @@
 app:
   name: "sample-app"
-  userId: "user-123"
+  userId: "123"
   projectName: "sample-app"
-  namespace: "user-user-123"
+  namespace: "user-123"
   framework: "nodejs"
   containerPort: 3000
   servicePort: 80
@@ -10,7 +10,7 @@ app:
   host: "sample-app.apps.example.com"
 
 image:
-  repository: "registry.example.com/platform/user-123/sample-app"
+  repository: "registry.example.com/platform/123/sample-app"
   tag: "user-123-1-abcdef123456" # managed-by-jenkins-image-tag
   pullPolicy: "IfNotPresent"
 
