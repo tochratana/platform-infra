@@ -7,6 +7,12 @@ Production-grade CI/CD building blocks for a multi-tenant deployment platform (V
 - Single generic Jenkins pipeline for all frameworks
 - Automatic framework detection and Dockerfile fallback templates
 - Spring Boot Docker templates auto-detect the Java version from the app build files
+- App container ports are framework-aware:
+  - `nextjs` / `nodejs` -> `3000`
+  - `react` / `laravel` / `php` / `static` -> `80`
+  - `springboot-*` / `java-*` -> `8080`
+  - `fastapi` / `flask` / `python` -> `8000`
+  - `APP_PORT` still works as an explicit override when you need a custom port
 - Docker image build/push with immutable version tag format:
   - `<userId>-<buildNumber>-<commitSHA>`
 - GitOps update script that writes to:

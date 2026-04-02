@@ -36,6 +36,43 @@ slugify() {
   echo "${normalized}" | cut -c1-"${max_len}"
 }
 
+default_container_port_for_framework() {
+  local framework="$1"
+
+  case "${framework}" in
+    nextjs|nodejs)
+      echo "3000"
+      ;;
+    react|laravel|php|static)
+      echo "80"
+      ;;
+    springboot-maven|springboot-gradle|java-maven|java-gradle)
+      echo "8080"
+      ;;
+    fastapi|flask|python)
+      echo "8000"
+      ;;
+    *)
+      echo "3000"
+      ;;
+  esac
+}
+
+resolve_container_port() {
+  local framework="$1"
+  local requested_port="$2"
+  local default_port
+
+  default_port="$(default_container_port_for_framework "${framework}")"
+
+  if [[ -z "${requested_port}" || "${requested_port}" == "3000" ]]; then
+    echo "${default_port}"
+    return 0
+  fi
+
+  echo "${requested_port}"
+}
+
 replace_image_tag() {
   local values_file="$1"
   local image_tag="$2"
@@ -140,9 +177,11 @@ create_values_file() {
   local app_port="$9"
   local domain="${10}"
   local custom_domain="${11}"
+  local effective_app_port
 
   local default_host_label
   default_host_label="$(slugify "${safe_project_name}-${safe_workspace_id}" 63)"
+  effective_app_port="$(resolve_container_port "${framework}" "${app_port}")"
 
   local effective_host="${default_host_label}.${domain}"
   if [[ -n "${custom_domain}" ]]; then
@@ -156,7 +195,7 @@ app:
   projectName: "${safe_project_name}"
   namespace: "${namespace}"
   framework: "${framework}"
-  containerPort: ${app_port}
+  containerPort: ${effective_app_port}
   servicePort: 80
   domain: "${domain}"
   host: "${effective_host}" # managed-by-jenkins-host
