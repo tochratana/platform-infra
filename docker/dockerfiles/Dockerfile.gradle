@@ -1,15 +1,11 @@
 ARG JAVA_VERSION=__JAVA_VERSION__
-FROM gradle:8.8.0-jdk${JAVA_VERSION}-alpine AS builder
+FROM eclipse-temurin:${JAVA_VERSION}-jdk AS builder
 WORKDIR /app
 COPY . .
-RUN if [ -f gradlew ]; then \
-      chmod +x gradlew && ./gradlew build -x test; \
-    else \
-      gradle build -x test; \
-    fi
+RUN chmod +x gradlew && ./gradlew clean bootJar --no-daemon -x test
 
-FROM eclipse-temurin:${JAVA_VERSION}-jre-alpine
+FROM eclipse-temurin:${JAVA_VERSION}-jdk
 WORKDIR /app
-COPY --from=builder /app/build/libs/*.jar app.jar
+COPY --from=builder /app/build/libs/*.jar /app/app.jar
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]
