@@ -6,8 +6,8 @@ app:
   framework: "nodejs"
   containerPort: 3000
   servicePort: 80
-  domain: "apps.example.com"
-  host: "sample-app.apps.example.com"
+  domain: "autonomous-istad.com"
+  host: "sample-app.autonomous-istad.com"
 
 image:
   repository: "registry.example.com/platform/123/sample-app"

@@ -15,19 +15,21 @@ pipeline {
         string(name: 'BRANCH', defaultValue: 'main', description: 'Git branch to build')
         string(name: 'USER_ID', defaultValue: '', description: 'Tenant user id')
         string(name: 'WORKSPACE_ID', defaultValue: '', description: 'Workspace id/slug for GitOps path partitioning')
-        string(name: 'CUSTOM_DOMAIN', defaultValue: '', description: 'Optional custom host (example: app.example.com)')
+        string(name: 'CUSTOM_DOMAIN', defaultValue: '', description: 'Optional custom host (example: app.autonomous-istad.com)')
         string(name: 'PROJECT_NAME', defaultValue: '', description: 'Project slug')
         string(name: 'APP_NAME', defaultValue: '', description: 'Legacy alias for PROJECT_NAME')
         string(name: 'APP_PORT', defaultValue: '3000', description: 'Container application port')
-        string(name: 'ENV_JSON', defaultValue: '[]', description: 'JSON array of environment variables to write into GitOps')
-        string(name: 'IMAGE_TAG', defaultValue: '', description: 'Optional image tag provided by backend (deploy or rollback)')
-        string(name: 'FRAMEWORK', defaultValue: '', description: 'Optional framework override provided by backend')
-        string(name: 'PLATFORM_DOMAIN', defaultValue: 'apps.example.com', description: 'Wildcard platform domain')
+        string(name: 'PLATFORM_DOMAIN', defaultValue: 'autonomous-istad.com', description: 'Wildcard platform domain')
         string(name: 'GITOPS_BRANCH', defaultValue: 'main', description: 'GitOps branch to update')
         string(name: 'REPO_CREDENTIALS_ID', defaultValue: '', description: 'Optional Jenkins credential id for private user repositories')
+        booleanParam(name: 'ENABLE_SONARQUBE_SCAN', defaultValue: false, description: 'Run SonarQube analysis and enforce quality gate')
+        string(name: 'SONARQUBE_SERVER', defaultValue: 'sonarqube', description: 'Jenkins SonarQube server name')
+        string(name: 'SONAR_SCANNER_TOOL', defaultValue: 'sonar-scanner', description: 'Jenkins SonarScanner tool name')
+        string(name: 'SONAR_PROJECT_KEY', defaultValue: '', description: 'Optional Sonar project key override')
+        string(name: 'SONAR_PROJECT_NAME', defaultValue: '', description: 'Optional Sonar project name override')
+        string(name: 'SONAR_QUALITY_GATE_TIMEOUT_MINUTES', defaultValue: '10', description: 'Max minutes to wait for Sonar Quality Gate')
         booleanParam(name: 'ENABLE_TRIVY_SCAN', defaultValue: true, description: 'Run local Trivy image scan')
         booleanParam(name: 'ENABLE_GITOPS_UPDATE', defaultValue: true, description: 'Update GitOps repository after push')
-        booleanParam(name: 'ROLLBACK_MODE', defaultValue: false, description: 'Skip build/scan/push and update GitOps with a saved image tag')
     }
 
     environment {
@@ -57,12 +59,12 @@ pipeline {
                     if (!(params.APP_PORT ==~ /^\d+$/)) {
                         error('APP_PORT must be numeric')
                     }
-                    if (params.ROLLBACK_MODE) {
-                        if (!params.FRAMEWORK?.trim()) {
-                            error('FRAMEWORK is required in rollback mode')
+                    if (params.ENABLE_SONARQUBE_SCAN) {
+                        if (!(params.SONAR_QUALITY_GATE_TIMEOUT_MINUTES ==~ /^\d+$/)) {
+                            error('SONAR_QUALITY_GATE_TIMEOUT_MINUTES must be numeric')
                         }
-                        if (!params.IMAGE_TAG?.trim()) {
-                            error('IMAGE_TAG is required in rollback mode')
+                        if (params.SONAR_QUALITY_GATE_TIMEOUT_MINUTES.toInteger() < 1) {
+                            error('SONAR_QUALITY_GATE_TIMEOUT_MINUTES must be >= 1')
                         }
                     }
 
@@ -73,44 +75,7 @@ pipeline {
                         error('REGISTRY_REPOSITORY must include registry host and Harbor project (example: harbor.devith.it.com/deployment-pipeline)')
                     }
 
-                    echo "ENABLE_GITOPS_UPDATE=${params.ENABLE_GITOPS_UPDATE} | GITOPS_BRANCH=${params.GITOPS_BRANCH} | WORKSPACE_ID=${env.EFFECTIVE_WORKSPACE_ID} | CUSTOM_DOMAIN=${params.CUSTOM_DOMAIN}"
-
-                    env.SAFE_USER_ID = sh(
-                        script: '''echo "$USER_ID" | tr '[:upper:]' '[:lower:]' | sed -E "s/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//; s/-{2,}/-/g" | cut -c1-30''',
-                        returnStdout: true
-                    ).trim()
-                    env.SAFE_WORKSPACE_ID = sh(
-                        script: '''echo "$EFFECTIVE_WORKSPACE_ID" | tr '[:upper:]' '[:lower:]' | sed -E "s/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//; s/-{2,}/-/g" | cut -c1-30''',
-                        returnStdout: true
-                    ).trim()
-                    env.SAFE_PROJECT_NAME = sh(
-                        script: '''echo "$EFFECTIVE_PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | sed -E "s/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//; s/-{2,}/-/g" | cut -c1-40''',
-                        returnStdout: true
-                    ).trim()
-
-                    env.NORMALIZED_REGISTRY_REPOSITORY = sh(
-                        script: '''echo "$REGISTRY_REPOSITORY" | sed -E 's#^https?://##; s#/*$##' ''',
-                        returnStdout: true
-                    ).trim()
-
-                    env.REGISTRY_LOGIN_SERVER = sh(
-                        script: '''echo "$REGISTRY_REPOSITORY" | sed -E 's#^https?://##' | cut -d/ -f1''',
-                        returnStdout: true
-                    ).trim()
-
-                    env.IMAGE_REPOSITORY = "${env.NORMALIZED_REGISTRY_REPOSITORY}/${env.SAFE_USER_ID}/${env.SAFE_PROJECT_NAME}"
-                    if (params.IMAGE_TAG?.trim()) {
-                        env.IMAGE_TAG = params.IMAGE_TAG.trim()
-                    }
-                    if (params.FRAMEWORK?.trim()) {
-                        env.FRAMEWORK = params.FRAMEWORK.trim()
-                    }
-                    if (env.IMAGE_TAG?.trim()) {
-                        env.IMAGE_FULL = "${env.IMAGE_REPOSITORY}:${env.IMAGE_TAG}"
-                    }
-                    if (params.ROLLBACK_MODE) {
-                        env.APP_COMMIT_SHA = "rollback-${env.IMAGE_TAG}"
-                    }
+                    echo "ENABLE_GITOPS_UPDATE=${params.ENABLE_GITOPS_UPDATE} | ENABLE_SONARQUBE_SCAN=${params.ENABLE_SONARQUBE_SCAN} | GITOPS_BRANCH=${params.GITOPS_BRANCH} | WORKSPACE_ID=${env.EFFECTIVE_WORKSPACE_ID} | CUSTOM_DOMAIN=${params.CUSTOM_DOMAIN}"
                 }
             }
         }
@@ -131,9 +96,6 @@ pipeline {
         }
 
         stage('Checkout user repository') {
-            when {
-                expression { return !params.ROLLBACK_MODE }
-            }
             steps {
                 dir('user-app') {
                     script {
@@ -160,10 +122,31 @@ pipeline {
                         }
 
                         env.APP_COMMIT_SHA = sh(script: 'git rev-parse --short=12 HEAD', returnStdout: true).trim()
-                        if (!env.IMAGE_TAG?.trim()) {
-                            env.IMAGE_TAG = "${env.SAFE_USER_ID}-${env.BUILD_NUMBER}-${env.APP_COMMIT_SHA}"
-                        }
+                        env.SAFE_USER_ID = sh(
+                            script: '''echo "$USER_ID" | tr '[:upper:]' '[:lower:]' | sed -E "s/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//; s/-{2,}/-/g" | cut -c1-30''',
+                            returnStdout: true
+                        ).trim()
+                        env.SAFE_WORKSPACE_ID = sh(
+                            script: '''echo "$EFFECTIVE_WORKSPACE_ID" | tr '[:upper:]' '[:lower:]' | sed -E "s/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//; s/-{2,}/-/g" | cut -c1-30''',
+                            returnStdout: true
+                        ).trim()
+                        env.SAFE_PROJECT_NAME = sh(
+                            script: '''echo "$EFFECTIVE_PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | sed -E "s/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//; s/-{2,}/-/g" | cut -c1-40''',
+                            returnStdout: true
+                        ).trim()
+
+                        env.NORMALIZED_REGISTRY_REPOSITORY = sh(
+                            script: '''echo "$REGISTRY_REPOSITORY" | sed -E 's#^https?://##; s#/*$##' ''',
+                            returnStdout: true
+                        ).trim()
+
+                        env.IMAGE_TAG = "${env.SAFE_USER_ID}-${env.BUILD_NUMBER}-${env.APP_COMMIT_SHA}"
+                        env.IMAGE_REPOSITORY = "${env.NORMALIZED_REGISTRY_REPOSITORY}/${env.SAFE_USER_ID}/${env.SAFE_PROJECT_NAME}"
                         env.IMAGE_FULL = "${env.IMAGE_REPOSITORY}:${env.IMAGE_TAG}"
+                        env.REGISTRY_LOGIN_SERVER = sh(
+                            script: '''echo "$REGISTRY_REPOSITORY" | sed -E 's#^https?://##' | cut -d/ -f1''',
+                            returnStdout: true
+                        ).trim()
 
                         echo "Resolved image tag: ${env.IMAGE_TAG}"
                     }
@@ -172,9 +155,6 @@ pipeline {
         }
 
         stage('Detect framework') {
-            when {
-                expression { return !params.ROLLBACK_MODE }
-            }
             steps {
                 dir('user-app') {
                     script {
@@ -204,9 +184,6 @@ pipeline {
         }
 
         stage('Prepare Dockerfile') {
-            when {
-                expression { return !params.ROLLBACK_MODE }
-            }
             steps {
                 dir('user-app') {
                     sh '''
@@ -242,10 +219,52 @@ pipeline {
             }
         }
 
-        stage('Build → Scan → Push') {
+        stage('SonarQube Scan + Quality Gate') {
             when {
-                expression { return !params.ROLLBACK_MODE }
+                expression { return params.ENABLE_SONARQUBE_SCAN }
             }
+            steps {
+                dir('user-app') {
+                    script {
+                        String sonarProjectKey = params.SONAR_PROJECT_KEY?.trim() ?
+                            params.SONAR_PROJECT_KEY.trim() :
+                            "${env.SAFE_WORKSPACE_ID}-${env.SAFE_USER_ID}-${env.SAFE_PROJECT_NAME}"
+                        String sonarProjectName = params.SONAR_PROJECT_NAME?.trim() ?
+                            params.SONAR_PROJECT_NAME.trim() :
+                            env.EFFECTIVE_PROJECT_NAME
+                        String sonarScannerHome = tool params.SONAR_SCANNER_TOOL
+
+                        withSonarQubeEnv(params.SONARQUBE_SERVER) {
+                            if (fileExists('sonar-project.properties')) {
+                                echo 'Using sonar-project.properties from repository.'
+                                sh """
+                                    set -e
+                                    "${sonarScannerHome}/bin/sonar-scanner"
+                                """
+                            } else {
+                                sh """
+                                    set -e
+                                    "${sonarScannerHome}/bin/sonar-scanner" \
+                                      -Dsonar.projectKey="${sonarProjectKey}" \
+                                      -Dsonar.projectName="${sonarProjectName}" \
+                                      -Dsonar.projectVersion="${env.BUILD_NUMBER}" \
+                                      -Dsonar.branch.name="${params.BRANCH}" \
+                                      -Dsonar.sources="." \
+                                      -Dsonar.exclusions="**/node_modules/**,**/.next/**,**/dist/**,**/build/**,**/coverage/**,**/vendor/**,**/.venv/**,**/__pycache__/**,**/.git/**" \
+                                      -Dsonar.sourceEncoding="UTF-8"
+                                """
+                            }
+                        }
+
+                        timeout(time: params.SONAR_QUALITY_GATE_TIMEOUT_MINUTES.toInteger(), unit: 'MINUTES') {
+                            waitForQualityGate abortPipeline: true
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Build → Scan → Push') {
             agent { label 'trivy' }
             steps {
                 script {
@@ -381,21 +400,14 @@ pipeline {
                             exit 1
                         fi
 
-                        OPERATION="deploy"
-                        if [ "${ROLLBACK_MODE}" = "true" ]; then
-                            OPERATION="rollback"
-                        fi
-
                         bash "${SCRIPTS_DIR}/update-gitops.sh" \
                           --gitops-repo "${GITOPS_REPO_URL}" \
                           --gitops-branch "${GITOPS_BRANCH}" \
                           --ssh-key "${SSH_KEY}" \
-                          --operation "${OPERATION}" \
                           --workspace-id "${EFFECTIVE_WORKSPACE_ID}" \
                           --user-id "${USER_ID}" \
                           --project-name "${EFFECTIVE_PROJECT_NAME}" \
                           --custom-domain "${CUSTOM_DOMAIN}" \
-                          --env-json "${ENV_JSON}" \
                           --image-repository "${IMAGE_REPOSITORY}" \
                           --image-tag "${IMAGE_TAG}" \
                           --app-port "${APP_PORT}" \

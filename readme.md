@@ -62,6 +62,7 @@ Production-grade CI/CD building blocks for a multi-tenant deployment platform (V
 - `APP_PORT`
 - `ENV_JSON` (optional JSON array of runtime env vars, manual form or `.env` import)
 - `PLATFORM_DOMAIN`
+  - default: `autonomous-istad.com`
 - `GITOPS_BRANCH`
 - `REPO_CREDENTIALS_ID` (optional)
 
