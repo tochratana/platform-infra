@@ -123,6 +123,7 @@ pipeline {
         timeout(time: 20, unit: 'MINUTES')
         timestamps()
         buildDiscarder(logRotator(numToKeepStr: '50'))
+        skipDefaultCheckout(true)
     }
 
     parameters {
@@ -171,6 +172,28 @@ pipeline {
     }
 
     stages {
+        stage('Prepare workspace') {
+            steps {
+                sh '''
+                    set +e
+                    if [ -d "$WORKSPACE/trivy-cache" ]; then
+                        echo "[workspace] Removing stale Trivy cache from previous builds."
+                        rm -rf "$WORKSPACE/trivy-cache" 2>/dev/null
+                    fi
+                    if [ -d "$WORKSPACE/trivy-cache" ] && command -v docker >/dev/null 2>&1; then
+                        docker run --rm \
+                            -v "$WORKSPACE:/workspace" \
+                            --entrypoint /bin/sh \
+                            aquasec/trivy:latest \
+                            -c 'rm -rf /workspace/trivy-cache' || true
+                    fi
+                    if [ -d "$WORKSPACE/trivy-cache" ]; then
+                        echo "[workspace] Stale Trivy cache still exists; future cleanup will ignore it."
+                    fi
+                '''
+            }
+        }
+
         stage('Validate input') {
             steps {
                 script {
@@ -478,13 +501,15 @@ elif [ -x /home/istad/bin/trivy ]; then
 elif [ -x /home/istad/.local/bin/trivy ]; then
     exec /home/istad/.local/bin/trivy "$@"
 elif command -v docker >/dev/null 2>&1; then
-    mkdir -p trivy-cache
+    TRIVY_CACHE_ROOT="${TRIVY_CACHE_DIR:-${TMPDIR:-/tmp}/a8s-trivy-cache/${JOB_NAME:-jenkins}}"
+    mkdir -p "$TRIVY_CACHE_ROOT"
     exec docker run --rm \
+        --user "$(id -u):$(id -g)" \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v "$PWD:$PWD" \
         -w "$PWD" \
-        -v "$PWD/trivy-cache:/root/.cache/" \
-        aquasec/trivy:latest "$@"
+        -v "$TRIVY_CACHE_ROOT:/tmp/trivy-cache" \
+        aquasec/trivy:latest --cache-dir /tmp/trivy-cache "$@"
 else
     echo "ERROR: Trivy was not found on this Jenkins agent and Docker fallback is unavailable."
     echo "Agent: ${NODE_NAME:-unknown}"
@@ -724,7 +749,24 @@ TRIVY_RUNNER
             }
         }
         always {
-            cleanWs()
+            script {
+                node('istad') {
+                    sh '''
+                        set +e
+                        if [ -d "$WORKSPACE/trivy-cache" ]; then
+                            rm -rf "$WORKSPACE/trivy-cache" 2>/dev/null
+                        fi
+                        if [ -d "$WORKSPACE/trivy-cache" ] && command -v docker >/dev/null 2>&1; then
+                            docker run --rm \
+                                -v "$WORKSPACE:/workspace" \
+                                --entrypoint /bin/sh \
+                                aquasec/trivy:latest \
+                                -c 'rm -rf /workspace/trivy-cache' || true
+                        fi
+                    '''
+                    cleanWs(deleteDirs: true, disableDeferredWipeout: true, notFailBuild: true)
+                }
+            }
         }
     }
 }
