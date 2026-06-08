@@ -711,16 +711,28 @@ TRIVY_RUNNER
                         HARBOR_REPOSITORY="${SAFE_USER_ID}/${SAFE_PROJECT_NAME}"
                         ENCODED_REPOSITORY="${SAFE_USER_ID}%252F${SAFE_PROJECT_NAME}"
                         URL="https://${HARBOR_HOST}/api/v2.0/projects/${HARBOR_PROJECT}/repositories/${ENCODED_REPOSITORY}"
+                        RESPONSE_FILE="$(mktemp "${TMPDIR:-/tmp}/a8s-harbor-delete.XXXXXX")"
+                        trap 'rm -f "${RESPONSE_FILE}"' EXIT
                         echo "[harbor] Deleting repository ${HARBOR_PROJECT}/${HARBOR_REPOSITORY}"
-                        HTTP_CODE="$(curl -sS -o /tmp/a8s-harbor-delete.out -w '%{http_code}' \
+
+                        set +e
+                        HTTP_CODE="$(curl -sS -o "${RESPONSE_FILE}" -w '%{http_code}' \
                             -u "${REGISTRY_USERNAME}:${REGISTRY_PASSWORD}" \
                             -X DELETE "${URL}")"
-                        if [ "${HTTP_CODE}" = "200" ] || [ "${HTTP_CODE}" = "202" ] || [ "${HTTP_CODE}" = "204" ] || [ "${HTTP_CODE}" = "404" ]; then
+                        CURL_STATUS="$?"
+                        set -e
+
+                        if [ "${HTTP_CODE}" = "200" ] || [ "${HTTP_CODE}" = "202" ] || [ "${HTTP_CODE}" = "204" ]; then
                             echo "[harbor] Delete accepted with HTTP ${HTTP_CODE}"
                             exit 0
                         fi
-                        echo "[harbor] Delete failed with HTTP ${HTTP_CODE}"
-                        cat /tmp/a8s-harbor-delete.out || true
+                        if [ "${HTTP_CODE}" = "404" ]; then
+                            echo "[harbor] Repository already absent with HTTP 404; delete is complete."
+                            exit 0
+                        fi
+
+                        echo "[harbor] Delete failed with HTTP ${HTTP_CODE} (curl exit ${CURL_STATUS})"
+                        cat "${RESPONSE_FILE}" || true
                         exit 1
                     '''
                 }
