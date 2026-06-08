@@ -502,8 +502,14 @@ elif [ -x /home/istad/.local/bin/trivy ]; then
     exec /home/istad/.local/bin/trivy "$@"
 elif command -v docker >/dev/null 2>&1; then
     TRIVY_CACHE_ROOT="${TRIVY_CACHE_DIR:-${TMPDIR:-/tmp}/a8s-trivy-cache/${JOB_NAME:-jenkins}}"
+    DOCKER_SOCK_GID="$(stat -c '%g' /var/run/docker.sock 2>/dev/null || true)"
+    DOCKER_GROUP_ARGS=""
+    if [ -n "$DOCKER_SOCK_GID" ]; then
+        DOCKER_GROUP_ARGS="--group-add $DOCKER_SOCK_GID"
+    fi
     mkdir -p "$TRIVY_CACHE_ROOT"
     exec docker run --rm \
+        $DOCKER_GROUP_ARGS \
         --user "$(id -u):$(id -g)" \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v "$PWD:$PWD" \
