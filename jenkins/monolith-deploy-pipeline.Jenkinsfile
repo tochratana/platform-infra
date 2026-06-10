@@ -597,7 +597,7 @@ TRIVY_RUNNER
                                     exit 0
                                 fi
 
-                                CRITICAL_COUNT="$(sed -nE 's/^Total:[[:space:]]+[0-9]+[[:space:]]+\\(CRITICAL:[[:space:]]*([0-9]+)\\).*/\\1/p' trivy-reports/trivy-report.txt | head -n1)"
+                                CRITICAL_COUNT="$(sed -nE 's/^Total:.*CRITICAL:[[:space:]]*([0-9]+).*/\\1/p' trivy-reports/trivy-report.txt | awk '{ total += $1 } END { print total + 0 }')"
                                 if [ -z "${CRITICAL_COUNT}" ]; then
                                     CRITICAL_COUNT="0"
                                 fi
