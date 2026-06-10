@@ -120,7 +120,7 @@ pipeline {
     agent { label 'istad' }
 
     options {
-        timeout(time: 20, unit: 'MINUTES')
+        timeout(time: 45, unit: 'MINUTES')
         timestamps()
         buildDiscarder(logRotator(numToKeepStr: '50'))
         skipDefaultCheckout(true)
