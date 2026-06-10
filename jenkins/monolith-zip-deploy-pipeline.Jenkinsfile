@@ -155,8 +155,9 @@ pipeline {
         string(name: 'REGISTRY_REPOSITORY', defaultValue: 'goharbor-itp.anajak-khmer.site/deployment-pipeline', description: 'Harbor host/project for pushed images')
         string(name: 'SONARQUBE_SERVER_NAME', defaultValue: 'sonarqube', description: 'Jenkins SonarQube server configuration name')
         string(name: 'SONARQUBE_SCANNER_TOOL', defaultValue: '', description: 'Optional Jenkins SonarScanner tool name')
-        booleanParam(name: 'ENABLE_SONARQUBE_SCAN', defaultValue: false, description: 'Run SonarQube source analysis')
-        booleanParam(name: 'ENABLE_SONARQUBE_QUALITY_GATE', defaultValue: false, description: 'Wait for SonarQube quality gate before build')
+        string(name: 'SONARQUBE_JDK_TOOL_PREFIX', defaultValue: 'jdk', description: 'Jenkins JDK tool prefix; Java 25 resolves to jdk25')
+        booleanParam(name: 'ENABLE_SONARQUBE_SCAN', defaultValue: true, description: 'Run SonarQube source analysis')
+        booleanParam(name: 'ENABLE_SONARQUBE_QUALITY_GATE', defaultValue: true, description: 'Wait for SonarQube quality gate before build')
         booleanParam(name: 'ENABLE_TRIVY_SCAN', defaultValue: true, description: 'Run local Trivy image scan')
         string(name: 'TRIVY_BIN', defaultValue: 'trivy', description: 'Trivy executable name or absolute path on the Jenkins agent')
         string(name: 'TRIVY_REPORT_SEVERITY', defaultValue: 'HIGH,CRITICAL', description: 'Severities included in Trivy report artifacts')
@@ -341,6 +342,7 @@ pipeline {
                         a8sSonarScan(
                             server: params.SONARQUBE_SERVER_NAME?.trim() ?: 'sonarqube',
                             scannerTool: params.SONARQUBE_SCANNER_TOOL?.trim(),
+                            jdkToolPrefix: params.SONARQUBE_JDK_TOOL_PREFIX?.trim(),
                             projectKey: "${env.SAFE_WORKSPACE_ID}-${env.SAFE_PROJECT_NAME}",
                             projectName: env.EFFECTIVE_PROJECT_NAME,
                             projectVersion: env.APP_COMMIT_SHA,
