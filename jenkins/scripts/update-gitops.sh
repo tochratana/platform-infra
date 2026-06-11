@@ -69,6 +69,9 @@ probe_mode_for_framework() {
     springboot-maven|springboot-gradle|java-maven|java-gradle)
       echo "tcp"
       ;;
+    fastapi|flask|python)
+      echo "tcp"
+      ;;
     *)
       echo "http"
       ;;
