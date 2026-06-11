@@ -477,6 +477,7 @@ pipeline {
 
                     if (params.ENABLE_TRIVY_SCAN) {
                         echo "[scan] Starting Trivy scan for ${env.IMAGE_FULL}"
+                        env.DEPLOY_FAILURE_REASON = 'Trivy image scan failed before the security gate completed.'
                         sh '''
                             set -eu
                             TRIVY_REPORT_SEVERITY_VALUE="${TRIVY_REPORT_SEVERITY:-HIGH,CRITICAL}"
@@ -488,28 +489,29 @@ pipeline {
 #!/bin/sh
 set -eu
 TRIVY_CMD="${TRIVY_BIN:-trivy}"
+TRIVY_CACHE_ROOT="${TRIVY_CACHE_DIR:-${WORKSPACE:-$PWD}/trivy-cache}"
+export TRIVY_CACHE_DIR="$TRIVY_CACHE_ROOT"
+mkdir -p "$TRIVY_CACHE_ROOT"
 if command -v "$TRIVY_CMD" >/dev/null 2>&1; then
-    exec "$(command -v "$TRIVY_CMD")" "$@"
+    exec "$(command -v "$TRIVY_CMD")" --cache-dir "$TRIVY_CACHE_ROOT" "$@"
 elif [ -x "$TRIVY_CMD" ]; then
-    exec "$TRIVY_CMD" "$@"
+    exec "$TRIVY_CMD" --cache-dir "$TRIVY_CACHE_ROOT" "$@"
 elif [ -x /usr/local/bin/trivy ]; then
-    exec /usr/local/bin/trivy "$@"
+    exec /usr/local/bin/trivy --cache-dir "$TRIVY_CACHE_ROOT" "$@"
 elif [ -x /usr/bin/trivy ]; then
-    exec /usr/bin/trivy "$@"
+    exec /usr/bin/trivy --cache-dir "$TRIVY_CACHE_ROOT" "$@"
 elif [ -x /snap/bin/trivy ]; then
-    exec /snap/bin/trivy "$@"
+    exec /snap/bin/trivy --cache-dir "$TRIVY_CACHE_ROOT" "$@"
 elif [ -x /home/istad/bin/trivy ]; then
-    exec /home/istad/bin/trivy "$@"
+    exec /home/istad/bin/trivy --cache-dir "$TRIVY_CACHE_ROOT" "$@"
 elif [ -x /home/istad/.local/bin/trivy ]; then
-    exec /home/istad/.local/bin/trivy "$@"
+    exec /home/istad/.local/bin/trivy --cache-dir "$TRIVY_CACHE_ROOT" "$@"
 elif command -v docker >/dev/null 2>&1; then
-    TRIVY_CACHE_ROOT="${TRIVY_CACHE_DIR:-${TMPDIR:-/tmp}/a8s-trivy-cache/${JOB_NAME:-jenkins}}"
     DOCKER_SOCK_GID="$(stat -c '%g' /var/run/docker.sock 2>/dev/null || true)"
     DOCKER_GROUP_ARGS=""
     if [ -n "$DOCKER_SOCK_GID" ]; then
         DOCKER_GROUP_ARGS="--group-add $DOCKER_SOCK_GID"
     fi
-    mkdir -p "$TRIVY_CACHE_ROOT"
     exec docker run --rm \
         $DOCKER_GROUP_ARGS \
         --user "$(id -u):$(id -g)" \
@@ -552,6 +554,12 @@ TRIVY_RUNNER
                                 --severity "${TRIVY_REPORT_SEVERITY_VALUE}" \
                                 --exit-code 0 \
                                 "$IMAGE_FULL" || true
+                            ./trivy-reports/run-trivy image \
+                                --format table \
+                                --output trivy-reports/trivy-gate-report.txt \
+                                --severity "${TRIVY_GATE_SEVERITY_VALUE}" \
+                                --exit-code 0 \
+                                "$IMAGE_FULL"
                         '''
                         archiveArtifacts artifacts: 'trivy-reports/*', fingerprint: true, allowEmptyArchive: true
                         if (params.UPLOAD_DEFECTDOJO) {
@@ -592,17 +600,18 @@ TRIVY_RUNNER
                         String trivyFailureSummary = sh(
                             script: '''
                                 set -eu
-                                if [ ! -f trivy-reports/trivy-report.txt ]; then
+                                REPORT_FILE="trivy-reports/trivy-gate-report.txt"
+                                if [ ! -f "${REPORT_FILE}" ]; then
                                     printf '0|'
                                     exit 0
                                 fi
 
-                                CRITICAL_COUNT="$(sed -nE 's/^Total:.*CRITICAL:[[:space:]]*([0-9]+).*/\\1/p' trivy-reports/trivy-report.txt | awk '{ total += $1 } END { print total + 0 }')"
+                                CRITICAL_COUNT="$(sed -nE 's/^Total:.*CRITICAL:[[:space:]]*([0-9]+).*/\\1/p' "${REPORT_FILE}" | awk '{ total += $1 } END { print total + 0 }')"
                                 if [ -z "${CRITICAL_COUNT}" ]; then
                                     CRITICAL_COUNT="0"
                                 fi
 
-                                CVE_LIST="$(grep -Eo 'CVE-[0-9]{4}-[0-9]+' trivy-reports/trivy-report.txt | sort -u | head -n 3 | tr '\\n' ',' | sed 's/,$//')"
+                                CVE_LIST="$(grep -Eo 'CVE-[0-9]{4}-[0-9]+' "${REPORT_FILE}" | sort -u | head -n 3 | tr '\\n' ',' | sed 's/,$//')"
                                 printf '%s|%s' "${CRITICAL_COUNT}" "${CVE_LIST}"
                             ''',
                             returnStdout: true
@@ -631,6 +640,7 @@ TRIVY_RUNNER
                                 --exit-code "${TRIVY_GATE_EXIT_CODE_VALUE}" \
                                 "$IMAGE_FULL"
                         '''
+                        env.DEPLOY_FAILURE_REASON = ''
                     }
 
                     withCredentials([usernamePassword(
