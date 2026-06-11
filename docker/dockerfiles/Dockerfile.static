@@ -1,5 +1,19 @@
 FROM nginx:1.27-alpine
-RUN apk upgrade --no-cache
-COPY . /usr/share/nginx/html
+RUN apk upgrade --no-cache && rm -rf /usr/share/nginx/html/*
+COPY . /tmp/static-root
+RUN set -eux; \
+    if [ -f /tmp/static-root/index.html ]; then \
+      cp -R /tmp/static-root/. /usr/share/nginx/html/; \
+    elif [ -f /tmp/static-root/dist/index.html ]; then \
+      cp -R /tmp/static-root/dist/. /usr/share/nginx/html/; \
+    elif [ -f /tmp/static-root/build/index.html ]; then \
+      cp -R /tmp/static-root/build/. /usr/share/nginx/html/; \
+    elif [ -f /tmp/static-root/public/index.html ]; then \
+      cp -R /tmp/static-root/public/. /usr/share/nginx/html/; \
+    else \
+      echo "Static HTML entrypoint not found (expected index.html, dist/index.html, build/index.html, or public/index.html)." >&2; \
+      exit 1; \
+    fi; \
+    rm -rf /tmp/static-root
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

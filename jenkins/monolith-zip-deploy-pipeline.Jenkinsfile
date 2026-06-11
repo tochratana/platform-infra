@@ -68,6 +68,62 @@ def prepareUserSource() {
         command -v unzip >/dev/null 2>&1 || { echo "unzip is required for ZIP_URL deployments" >&2; exit 1; }
         command -v curl >/dev/null 2>&1 || { echo "curl is required for ZIP_URL deployments" >&2; exit 1; }
 
+        has_project_marker() {
+            [ -f package.json ] \
+                || [ -f pom.xml ] \
+                || [ -f build.gradle ] \
+                || [ -f build.gradle.kts ] \
+                || [ -f composer.json ] \
+                || [ -f requirements.txt ] \
+                || [ -f pyproject.toml ] \
+                || [ -f index.html ] \
+                || [ -f public/index.html ] \
+                || [ -f dist/index.html ] \
+                || [ -f build/index.html ]
+        }
+
+        promote_nested_project_root() {
+            if has_project_marker; then
+                return 0
+            fi
+
+            marker_file="$tmp_dir/project-roots.txt"
+            find . -mindepth 1 -maxdepth 3 -type d \
+                ! -path './node_modules/*' \
+                ! -path './.git/*' \
+                ! -path './__MACOSX/*' \
+                -exec sh -c '
+                    for dir do
+                        if [ -f "$dir/package.json" ] \
+                            || [ -f "$dir/pom.xml" ] \
+                            || [ -f "$dir/build.gradle" ] \
+                            || [ -f "$dir/build.gradle.kts" ] \
+                            || [ -f "$dir/composer.json" ] \
+                            || [ -f "$dir/requirements.txt" ] \
+                            || [ -f "$dir/pyproject.toml" ] \
+                            || [ -f "$dir/index.html" ] \
+                            || [ -f "$dir/public/index.html" ] \
+                            || [ -f "$dir/dist/index.html" ] \
+                            || [ -f "$dir/build/index.html" ]; then
+                            printf "%s\\n" "$dir"
+                        fi
+                    done
+                ' sh {} + | sort > "$marker_file"
+
+            candidate_count="$(wc -l < "$marker_file" | tr -d ' ')"
+            if [ "$candidate_count" = "1" ]; then
+                candidate="$(cat "$marker_file")"
+                promoted_dir="$(mktemp -d)"
+                echo "[zip] Promoting nested project root: ${candidate#./}"
+                cp -R "$candidate"/. "$promoted_dir"/
+                find . -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+                cp -R "$promoted_dir"/. .
+                rm -rf "$promoted_dir"
+            elif [ "$candidate_count" -gt 1 ]; then
+                echo "[zip] Multiple nested project roots found; keeping ZIP root. Put the app package.json at the ZIP root for monolith deploy."
+            fi
+        }
+
         source_type="${SOURCE_TYPE:-ZIP_URL}"
         zip_url="${ZIP_URL:-}"
         tmp_dir="$(mktemp -d)"
@@ -118,6 +174,7 @@ def prepareUserSource() {
         rm -rf .git .github .gitlab
         find . -name '__MACOSX' -type d -prune -exec rm -rf {} + 2>/dev/null || true
         find . -name '.DS_Store' -type f -delete 2>/dev/null || true
+        promote_nested_project_root
     '''
     env.APP_COMMIT_SHA = sh(script: 'find . -type f ! -path "./node_modules/*" -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12', returnStdout: true).trim()
 }
