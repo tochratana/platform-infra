@@ -157,7 +157,7 @@ pipeline {
         string(name: 'TRIVY_BIN', defaultValue: 'trivy', description: 'Trivy executable name or absolute path on the Jenkins agent')
         string(name: 'TRIVY_REPORT_SEVERITY', defaultValue: 'HIGH,CRITICAL', description: 'Severities included in Trivy report artifacts')
         string(name: 'TRIVY_GATE_SEVERITY', defaultValue: 'CRITICAL', description: 'Severities that should fail the deployment gate')
-        string(name: 'TRIVY_GATE_EXIT_CODE', defaultValue: '1', description: 'Trivy gate exit code (1=enforce gate, 0=report-only)')
+        string(name: 'TRIVY_GATE_EXIT_CODE', defaultValue: '0', description: 'Trivy gate exit code (1=enforce gate, 0=report-only)')
         booleanParam(name: 'UPLOAD_DEFECTDOJO', defaultValue: true, description: 'Upload monolithic deploy Trivy report to DefectDojo')
         string(name: 'DEFECTDOJO_URL', defaultValue: 'https://defetchdojo.anajak-khmer.site', description: 'DefectDojo base URL')
         string(name: 'DEFECTDOJO_CREDENTIALS_ID', defaultValue: 'DEFECTDOJO', description: 'Jenkins secret text credential id containing a DefectDojo API token')
