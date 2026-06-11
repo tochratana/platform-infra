@@ -10,6 +10,7 @@ RUN apt-get update \
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 COPY . /var/www/html/
+RUN git config --global --add safe.directory /var/www/html
 RUN if [ -f composer.json ]; then \
       composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction; \
     fi
