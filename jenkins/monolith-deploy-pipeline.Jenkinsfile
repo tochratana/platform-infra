@@ -45,12 +45,12 @@ def notifyBackendRelease(String outcome, String statusMessageOverride = null) {
                     token="$A8S_CALLBACK_TOKEN_PARAM"
                 fi
                 if [ -n "$token" ]; then
-                    curl -fsS -X POST "$A8S_RELEASE_CALLBACK_URL" \
+                    curl -fsS -o /dev/null -X POST "$A8S_RELEASE_CALLBACK_URL" \
                         -H 'Content-Type: application/json' \
                         -H "X-A8S-Jenkins-Callback-Token: $token" \
                         --data @"$A8S_RELEASE_CALLBACK_FILE"
                 else
-                    curl -fsS -X POST "$A8S_RELEASE_CALLBACK_URL" \
+                    curl -fsS -o /dev/null -X POST "$A8S_RELEASE_CALLBACK_URL" \
                         -H 'Content-Type: application/json' \
                         --data @"$A8S_RELEASE_CALLBACK_FILE"
                 fi
@@ -96,12 +96,12 @@ def notifyBackendDelete(String outcome) {
                     token="$A8S_CALLBACK_TOKEN_PARAM"
                 fi
                 if [ -n "$token" ]; then
-                    curl -fsS -X POST "$A8S_DELETE_CALLBACK_URL" \
+                    curl -fsS -o /dev/null -X POST "$A8S_DELETE_CALLBACK_URL" \
                         -H 'Content-Type: application/json' \
                         -H "X-A8S-Jenkins-Callback-Token: $token" \
                         --data @"$A8S_DELETE_CALLBACK_FILE"
                 else
-                    curl -fsS -X POST "$A8S_DELETE_CALLBACK_URL" \
+                    curl -fsS -o /dev/null -X POST "$A8S_DELETE_CALLBACK_URL" \
                         -H 'Content-Type: application/json' \
                         --data @"$A8S_DELETE_CALLBACK_FILE"
                 fi
