@@ -273,6 +273,7 @@ pipeline {
                 expression { return env.EFFECTIVE_OPERATION != 'delete' }
             }
             steps {
+                sh "git config --global --add safe.directory \${WORKSPACE}/user-app"
                 dir('user-app') {
                     script {
                         deleteDir()
