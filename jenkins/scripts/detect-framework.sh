@@ -42,19 +42,6 @@ has_python_dependency() {
   return 1
 }
 
-if [[ -f package.json ]]; then
-  if has_dependency_in_package_json "next"; then
-    echo "nextjs"
-  elif has_dependency_in_package_json "react"; then
-    echo "react"
-  elif has_static_entrypoint && { has_dependency_in_package_json "tailwindcss" || has_dependency_in_package_json "@tailwindcss/cli" || has_dependency_in_package_json "@tailwindcss/vite" || has_dependency_in_package_json "vite" || has_tailwind_config; }; then
-    echo "tailwind-static"
-  else
-    echo "nodejs"
-  fi
-  exit 0
-fi
-
 if [[ -f pom.xml ]]; then
   if grep -Eiq "spring-boot" pom.xml; then
     echo "springboot-maven"
@@ -78,6 +65,19 @@ if [[ -f composer.json ]]; then
     echo "laravel"
   else
     echo "php"
+  fi
+  exit 0
+fi
+
+if [[ -f package.json ]]; then
+  if has_dependency_in_package_json "next"; then
+    echo "nextjs"
+  elif has_dependency_in_package_json "react"; then
+    echo "react"
+  elif has_static_entrypoint && { has_dependency_in_package_json "tailwindcss" || has_dependency_in_package_json "@tailwindcss/cli" || has_dependency_in_package_json "@tailwindcss/vite" || has_dependency_in_package_json "vite" || has_tailwind_config; }; then
+    echo "tailwind-static"
+  else
+    echo "nodejs"
   fi
   exit 0
 fi

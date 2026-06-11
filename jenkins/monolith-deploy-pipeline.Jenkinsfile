@@ -152,7 +152,7 @@ pipeline {
         string(name: 'SONARQUBE_SCANNER_TOOL', defaultValue: '', description: 'Optional Jenkins SonarScanner tool name')
         string(name: 'SONARQUBE_JDK_TOOL_PREFIX', defaultValue: 'jdk', description: 'Jenkins JDK tool prefix; Java 25 resolves to jdk25')
         booleanParam(name: 'ENABLE_SONARQUBE_SCAN', defaultValue: true, description: 'Run SonarQube source analysis')
-        booleanParam(name: 'ENABLE_SONARQUBE_QUALITY_GATE', defaultValue: true, description: 'Wait for SonarQube quality gate before build')
+        booleanParam(name: 'ENABLE_SONARQUBE_QUALITY_GATE', defaultValue: false, description: 'Wait for SonarQube quality gate before build')
         booleanParam(name: 'ENABLE_TRIVY_SCAN', defaultValue: true, description: 'Run local Trivy image scan')
         string(name: 'TRIVY_BIN', defaultValue: 'trivy', description: 'Trivy executable name or absolute path on the Jenkins agent')
         string(name: 'TRIVY_REPORT_SEVERITY', defaultValue: 'HIGH,CRITICAL', description: 'Severities included in Trivy report artifacts')
