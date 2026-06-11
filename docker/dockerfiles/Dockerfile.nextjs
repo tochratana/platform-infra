@@ -13,13 +13,22 @@ RUN corepack enable && \
     elif [ -f pnpm-lock.yaml ]; then corepack prepare pnpm@latest --activate && pnpm run build; \
     else npm run build; fi
 
+FROM deps AS prod-deps
+RUN corepack enable && \
+    if [ -f yarn.lock ]; then \
+      if [ -f .yarnrc.yml ]; then yarn workspaces focus --all --production || yarn install --immutable; else yarn install --frozen-lockfile --production=true; fi; \
+    elif [ -f pnpm-lock.yaml ]; then corepack prepare pnpm@latest --activate && pnpm prune --prod; \
+    elif [ -f package-lock.json ]; then npm prune --omit=dev; \
+    else npm prune --omit=dev || true; fi && \
+    rm -rf /root/.cache /tmp/* .next/cache
+
 FROM node:20-alpine
 RUN apk upgrade --no-cache
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
-COPY --from=deps /app/node_modules ./node_modules
+COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=deps /tmp/package-manager ./package-manager
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/.next ./.next
