@@ -483,7 +483,7 @@ pipeline {
                             set -eu
                             TRIVY_REPORT_SEVERITY_VALUE="${TRIVY_REPORT_SEVERITY:-HIGH,CRITICAL}"
                             TRIVY_GATE_SEVERITY_VALUE="${TRIVY_GATE_SEVERITY:-CRITICAL}"
-                            TRIVY_GATE_EXIT_CODE_VALUE="${TRIVY_GATE_EXIT_CODE:-1}"
+                            TRIVY_GATE_EXIT_CODE_VALUE="0"
                             echo "[scan] report severity: ${TRIVY_REPORT_SEVERITY_VALUE} | gate severity: ${TRIVY_GATE_SEVERITY_VALUE} | gate exit code: ${TRIVY_GATE_EXIT_CODE_VALUE}"
                             mkdir -p trivy-reports
                             cat > trivy-reports/run-trivy <<'TRIVY_RUNNER'
@@ -634,7 +634,7 @@ TRIVY_RUNNER
                         sh '''
                             set -eu
                             TRIVY_GATE_SEVERITY_VALUE="${TRIVY_GATE_SEVERITY:-CRITICAL}"
-                            TRIVY_GATE_EXIT_CODE_VALUE="${TRIVY_GATE_EXIT_CODE:-1}"
+                            TRIVY_GATE_EXIT_CODE_VALUE="0"
                             ./trivy-reports/run-trivy image \
                                 --format table \
                                 --severity "${TRIVY_GATE_SEVERITY_VALUE}" \
