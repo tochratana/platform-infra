@@ -1,6 +1,6 @@
 @Library(['share_lib@master', 'a8s-sonarqube@main']) _
 
-def notifyBackendRelease(String outcome) {
+def notifyBackendRelease(String outcome, String statusMessageOverride = null) {
     String callbackBaseUrl = params.BACKEND_CALLBACK_URL?.trim()
     String projectId = params.PROJECT_ID?.trim()
     String releaseId = params.RELEASE_ID?.trim()
@@ -22,10 +22,13 @@ def notifyBackendRelease(String outcome) {
     String callbackTokenParam = params.CALLBACK_TOKEN?.trim() ?: ''
     String callbackUrl = "${callbackBaseUrl.replaceAll('/+$', '')}/api/v1/projects/${projectId}/releases/${releaseId}/${endpoint}"
     String callbackFile = ".a8s-release-callback-${endpoint}.json"
+    String resolvedStatusMessage = outcome == 'complete'
+        ? 'Deployment completed successfully'
+        : (statusMessageOverride?.trim() ?: 'Jenkins pipeline failed')
     Map payload = [
         buildNumber: buildNumber,
         framework: framework,
-        statusMessage: outcome == 'complete' ? 'Deployment completed successfully' : 'Jenkins pipeline failed'
+        statusMessage: resolvedStatusMessage
     ]
 
     writeFile file: callbackFile, text: groovy.json.JsonOutput.toJson(payload)
@@ -155,7 +158,7 @@ def prepareUserSource() {
             exit 1
         fi
         echo "Using callback token from Jenkins env/params (length: $(printf '%s' "$token" | wc -c | tr -d ' '))."
-        curl -fL --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 \
+        curl -fL --http1.1 --retry 5 --retry-all-errors --retry-delay 3 --retry-max-time 600 --connect-timeout 15 --max-time 600 \
             -H "X-Source-Archive-Token: $token" \
             -H "Authorization: Bearer $token" \
             "$zip_url" -o "$tmp_dir/source.zip"
@@ -177,6 +180,49 @@ def prepareUserSource() {
         promote_nested_project_root
     '''
     env.APP_COMMIT_SHA = sh(script: 'find . -type f ! -path "./node_modules/*" -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12', returnStdout: true).trim()
+}
+
+def validatePlatformStaticEntrypoint() {
+    String framework = env.FRAMEWORK?.trim() ?: params.FRAMEWORK?.trim() ?: ''
+    if (!(framework in ['static', 'tailwind-static'])) {
+        return
+    }
+
+    String scriptsDir = sh(
+        script: '''
+            set -e
+            for d in "$WORKSPACE/platform-infra/jenkins/scripts" "$WORKSPACE/plateform-infra/jenkins/scripts"; do
+                if [ -f "$d/validate-static-entrypoint.sh" ]; then
+                    echo "$d"
+                    exit 0
+                fi
+            done
+            echo "ERROR: validate-static-entrypoint.sh not found in expected infra directories." >&2
+            ls -la "$WORKSPACE" >&2 || true
+            exit 1
+        ''',
+        returnStdout: true
+    ).trim()
+    String validationFile = '../.a8s-static-entrypoint-validation.txt'
+    writeFile file: validationFile, text: ''
+
+    int validationStatus = 0
+    withEnv([
+        "A8S_STATIC_FRAMEWORK=${framework}",
+        "A8S_STATIC_VALIDATION_FILE=${validationFile}",
+        "A8S_STATIC_VALIDATION_SCRIPT=${scriptsDir}/validate-static-entrypoint.sh"
+    ]) {
+        validationStatus = sh(
+            script: 'bash "$A8S_STATIC_VALIDATION_SCRIPT" "$A8S_STATIC_FRAMEWORK" > "$A8S_STATIC_VALIDATION_FILE"',
+            returnStatus: true
+        )
+    }
+
+    if (validationStatus != 0) {
+        String validationMessage = fileExists(validationFile) ? readFile(validationFile).trim() : ''
+        env.DEPLOY_FAILURE_REASON = validationMessage ?: 'Static deploy could not find an index.html entrypoint.'
+        error(env.DEPLOY_FAILURE_REASON)
+    }
 }
 
 pipeline {
@@ -345,7 +391,9 @@ pipeline {
                 dir('user-app') {
                     script {
                         deleteDir()
+                        env.DEPLOY_FAILURE_REASON = 'Uploaded ZIP source could not be downloaded by Jenkins. Check the source archive URL, callback token, and network path from Jenkins to the backend.'
                         prepareUserSource()
+                        env.DEPLOY_FAILURE_REASON = ''
 
                         env.NORMALIZED_REGISTRY_REPOSITORY = env.EFFECTIVE_REGISTRY_REPOSITORY
                         env.IMAGE_TAG = params.IMAGE_TAG?.trim() ?: "${env.SAFE_USER_ID}-${env.BUILD_NUMBER}-${env.APP_COMMIT_SHA}"
@@ -384,6 +432,16 @@ pipeline {
                         ).trim()
                         env.FRAMEWORK = detectedFramework ?: params.FRAMEWORK?.trim()
                         echo "Detected framework: ${env.FRAMEWORK}"
+                    }
+                }
+            }
+        }
+
+        stage('Validate static entrypoint') {
+            steps {
+                dir('user-app') {
+                    script {
+                        validatePlatformStaticEntrypoint()
                     }
                 }
             }
@@ -470,7 +528,10 @@ pipeline {
 
                     dir('user-app') {
                         deleteDir()
+                        env.DEPLOY_FAILURE_REASON = 'Uploaded ZIP source could not be downloaded by Jenkins. Check the source archive URL, callback token, and network path from Jenkins to the backend.'
                         prepareUserSource()
+                        env.DEPLOY_FAILURE_REASON = ''
+                        validatePlatformStaticEntrypoint()
 
                         sh '''
                             SCRIPTS_DIR=""
@@ -714,7 +775,7 @@ TRIVY_RUNNER
         failure {
             echo 'Deployment failed. Check stage logs for details.'
             script {
-                notifyBackendRelease('failed')
+                notifyBackendRelease('failed', env.DEPLOY_FAILURE_REASON)
             }
         }
         always {

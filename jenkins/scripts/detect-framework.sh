@@ -22,7 +22,7 @@ has_dependency_in_package_json() {
 }
 
 has_static_entrypoint() {
-  [[ -f index.html || -f public/index.html || -f dist/index.html || -f src/index.html ]]
+  [[ -f index.html || -f public/index.html || -f dist/index.html || -f build/index.html || -f src/index.html ]]
 }
 
 has_tailwind_config() {
@@ -93,7 +93,7 @@ if [[ -f requirements.txt || -f pyproject.toml ]]; then
   exit 0
 fi
 
-if [[ -f index.html || -f public/index.html || -f dist/index.html ]]; then
+if [[ -f index.html || -f public/index.html || -f dist/index.html || -f build/index.html ]]; then
   echo "static"
   exit 0
 fi

@@ -116,6 +116,49 @@ def notifyBackendDelete(String outcome) {
     }
 }
 
+def validatePlatformStaticEntrypoint() {
+    String framework = env.FRAMEWORK?.trim() ?: params.FRAMEWORK?.trim() ?: ''
+    if (!(framework in ['static', 'tailwind-static'])) {
+        return
+    }
+
+    String scriptsDir = sh(
+        script: '''
+            set -e
+            for d in "$WORKSPACE/platform-infra/jenkins/scripts" "$WORKSPACE/plateform-infra/jenkins/scripts"; do
+                if [ -f "$d/validate-static-entrypoint.sh" ]; then
+                    echo "$d"
+                    exit 0
+                fi
+            done
+            echo "ERROR: validate-static-entrypoint.sh not found in expected infra directories." >&2
+            ls -la "$WORKSPACE" >&2 || true
+            exit 1
+        ''',
+        returnStdout: true
+    ).trim()
+    String validationFile = '../.a8s-static-entrypoint-validation.txt'
+    writeFile file: validationFile, text: ''
+
+    int validationStatus = 0
+    withEnv([
+        "A8S_STATIC_FRAMEWORK=${framework}",
+        "A8S_STATIC_VALIDATION_FILE=${validationFile}",
+        "A8S_STATIC_VALIDATION_SCRIPT=${scriptsDir}/validate-static-entrypoint.sh"
+    ]) {
+        validationStatus = sh(
+            script: 'bash "$A8S_STATIC_VALIDATION_SCRIPT" "$A8S_STATIC_FRAMEWORK" > "$A8S_STATIC_VALIDATION_FILE"',
+            returnStatus: true
+        )
+    }
+
+    if (validationStatus != 0) {
+        String validationMessage = fileExists(validationFile) ? readFile(validationFile).trim() : ''
+        env.DEPLOY_FAILURE_REASON = validationMessage ?: 'Static deploy could not find an index.html entrypoint.'
+        error(env.DEPLOY_FAILURE_REASON)
+    }
+}
+
 pipeline {
     agent { label 'istad' }
 
@@ -345,6 +388,19 @@ pipeline {
             }
         }
 
+        stage('Validate static entrypoint') {
+            when {
+                expression { return env.EFFECTIVE_OPERATION != 'delete' }
+            }
+            steps {
+                dir('user-app') {
+                    script {
+                        validatePlatformStaticEntrypoint()
+                    }
+                }
+            }
+        }
+
         stage('SonarQube Analysis') {
             when {
                 expression { return env.EFFECTIVE_OPERATION != 'delete' && params.ENABLE_SONARQUBE_SCAN }
@@ -444,6 +500,8 @@ pipeline {
                         } else {
                             git url: env.NORMALIZED_REPO_URL, branch: params.BRANCH
                         }
+
+                        validatePlatformStaticEntrypoint()
 
                         sh '''
                             SCRIPTS_DIR=""
